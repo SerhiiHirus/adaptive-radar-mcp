@@ -60,10 +60,12 @@ flowchart TD
 
 ## Key Design Principles
 
-### 1. Prompt Injection Defense
-Changelog notes written by third parties are **untrusted input**. The embedded `ContentSanitizer`:
-- Strips instruction overrides (e.g., `ignore previous instructions`, `system prompt:`, `exfiltrate`).
-- Cleans HTML markup, hidden comments, scripts, and non-printable control characters.
+### 1. Prompt Injection Risk Mitigation
+Changelog notes written by third parties are untrusted input. The embedded `ContentSanitizer`:
+- Normalizes Unicode characters via **NFKC** and strips zero-width/formatting characters (`Cf` category) to prevent character-level evasion.
+- Strips instruction overrides (e.g., `ignore previous instructions`, `disregard rules`, `system prompt:`, `exfiltrate`).
+- Cleans HTML markup, hidden comments, scripts, and dangerous URL protocols (`javascript:`, `data:`).
+- Strips newlines and markdown heading markers from titles to prevent report structure spoofing.
 - Truncates release bodies to prevent context exhaustion attacks.
 
 ### 2. Transparent Cost-Reduction Heuristics
@@ -78,8 +80,10 @@ Provides the `radar_prepare_context7_verification` tool, which generates a struc
 
 ### 4. Zero Unauthenticated Dependency Lock-in
 - Requires zero paid API keys out of the box.
+- Supports conditional requests via **HTTP ETag** (`If-None-Match`) to minimize bandwidth and GitHub rate limits.
 - Supports optional `GITHUB_TOKEN` environment variable to expand GitHub API limits from 60 to 5,000 requests/hour.
-- Connection pooling via `httpx.AsyncClient` with bounded concurrency (`asyncio.Semaphore`).
+- Employs **defusedxml** to protect against XXE, Billion Laughs, and quadratic blowup attacks across all XML encodings.
+- Implements response size limits (2 MB) and connection pooling via `httpx.AsyncClient` with bounded concurrency (`asyncio.Semaphore`).
 
 ---
 

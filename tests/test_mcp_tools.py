@@ -3,7 +3,7 @@
 import pytest
 from pathlib import Path
 from adaptive_radar_mcp.memory.db import RadarDatabase
-from adaptive_radar_mcp.models import SourceType, TechRelease, UserStackProfile
+from adaptive_radar_mcp.models import DecisionType, FeedbackRecord, SourceType, TechRelease, UserStackProfile
 from adaptive_radar_mcp.server import radar_record_feedback, radar_ingest_custom, radar_set_stack_profile
 
 
@@ -29,8 +29,51 @@ def test_database_deduplication(tmp_path):
     
     # First insert succeeds
     assert db.save_release(rel) is True
-    # Duplicate hash fails
+    # Duplicate hash returns False (no change)
     assert db.save_release(rel) is False
+
+
+def test_observed_status_retains_release(tmp_path):
+    """Verify that marking a release as OBSERVED does NOT permanently hide it (B1 fix)."""
+    db = RadarDatabase(tmp_path / "observed.db")
+    rel = TechRelease(
+        release_id="gh:test/repo:v1",
+        source_type=SourceType.GITHUB_RELEASE,
+        project_or_repo="test/repo",
+        version="v1",
+        title="Test v1",
+        body="Feature A",
+        url="https://github.com/test/repo",
+        published_at="2026-11-04T00:00:00Z",
+        content_hash="hash123",
+    )
+    db.save_release(rel)
+
+    # Record OBSERVED feedback
+    db.record_feedback(FeedbackRecord(
+        release_id="gh:test/repo:v1",
+        project_or_repo="test/repo",
+        decision=DecisionType.OBSERVED,
+        reason="Tracking for next sprint",
+        timestamp="2026-11-04T00:00:00Z"
+    ))
+
+    # Release should still be returned in unreviewed releases
+    unreviewed = db.get_unreviewed_releases(limit=10)
+    assert any(r.release_id == "gh:test/repo:v1" for r in unreviewed)
+
+    # Now record ACCEPTED feedback
+    db.record_feedback(FeedbackRecord(
+        release_id="gh:test/repo:v1",
+        project_or_repo="test/repo",
+        decision=DecisionType.ACCEPTED,
+        reason="Adopted",
+        timestamp="2026-11-04T00:00:00Z"
+    ))
+
+    # Now it must be excluded
+    unreviewed_after = db.get_unreviewed_releases(limit=10)
+    assert not any(r.release_id == "gh:test/repo:v1" for r in unreviewed_after)
 
 
 def test_user_profile_crud(tmp_path):
@@ -60,7 +103,6 @@ def test_record_feedback_prefix_cleaning(tmp_path):
     assert "Recorded feedback" in res
     
     db = RadarDatabase(tmp_path / "radar.db")
-    # Verify feedback was stored
     recent = db.get_recent_feedback(1)
     assert len(recent) == 1
     assert recent[0].project_or_repo == "OpenAI Blog"

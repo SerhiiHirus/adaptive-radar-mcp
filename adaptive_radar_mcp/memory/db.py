@@ -1,11 +1,12 @@
-"""SQLite storage layer for adaptive-radar-mcp."""
+"""SQLite storage layer for adaptive-radar-mcp with strict permissions and proper lifecycle."""
 
+from contextlib import contextmanager
+from datetime import datetime, timezone
 import json
 import os
-import sqlite3
-from datetime import datetime, timezone
 from pathlib import Path
-from typing import List, Optional
+import sqlite3
+from typing import Generator, List, Optional
 
 from adaptive_radar_mcp.models import (
     DecisionType,
@@ -26,20 +27,36 @@ class RadarDatabase:
                 base_dir = Path(storage_dir)
             else:
                 base_dir = Path.home() / ".adaptive-radar"
-            base_dir.mkdir(parents=True, exist_ok=True)
+            base_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
             db_path = base_dir / "radar.db"
 
         self.db_path = db_path
         self._init_db()
 
-    def _get_connection(self) -> sqlite3.Connection:
+        # Enforce strict file permissions on database file
+        try:
+            if self.db_path.exists():
+                os.chmod(self.db_path, 0o600)
+        except OSError:
+            pass
+
+    @contextmanager
+    def _connection(self) -> Generator[sqlite3.Connection, None, None]:
+        """Context manager that commits on success and closes the connection cleanly."""
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
-        return conn
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
     def _init_db(self) -> None:
         """Create tables if they do not exist."""
-        with self._get_connection() as conn:
+        with self._connection() as conn:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS releases (
                     release_id TEXT PRIMARY KEY,
@@ -50,7 +67,7 @@ class RadarDatabase:
                     body TEXT NOT NULL,
                     url TEXT NOT NULL,
                     published_at TEXT NOT NULL,
-                    content_hash TEXT UNIQUE NOT NULL,
+                    content_hash TEXT NOT NULL,
                     created_at TEXT NOT NULL
                 );
             """)
@@ -73,45 +90,45 @@ class RadarDatabase:
                     updated_at TEXT NOT NULL
                 );
             """)
-            conn.commit()
 
     def save_release(self, release: TechRelease) -> bool:
-        """Insert a release. Returns False if already exists (deduplicated by content_hash)."""
+        """Insert or update a release. Updates body/title if changed (B4 fix)."""
         now = datetime.now(timezone.utc).isoformat()
-        try:
-            with self._get_connection() as conn:
-                conn.execute(
-                    """
-                    INSERT INTO releases 
-                    (release_id, source_type, project_or_repo, version, title, body, url, published_at, content_hash, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        release.release_id,
-                        release.source_type.value,
-                        release.project_or_repo,
-                        release.version,
-                        release.title,
-                        release.body,
-                        release.url,
-                        release.published_at,
-                        release.content_hash,
-                        now,
-                    ),
-                )
-                conn.commit()
-                return True
-        except sqlite3.IntegrityError:
-            # Duplicate release or content hash
-            return False
+        with self._connection() as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO releases 
+                (release_id, source_type, project_or_repo, version, title, body, url, published_at, content_hash, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(release_id) DO UPDATE SET
+                    title = excluded.title,
+                    body = excluded.body,
+                    content_hash = excluded.content_hash
+                WHERE releases.content_hash != excluded.content_hash
+                """,
+                (
+                    release.release_id,
+                    release.source_type.value,
+                    release.project_or_repo,
+                    release.version,
+                    release.title,
+                    release.body,
+                    release.url,
+                    release.published_at,
+                    release.content_hash,
+                    now,
+                ),
+            )
+            return cursor.rowcount > 0
 
     def get_unreviewed_releases(self, limit: int = 20) -> List[TechRelease]:
-        """Fetch releases that haven't received user feedback yet."""
-        with self._get_connection() as conn:
+        """Fetch releases that haven't received a final decision (ACCEPTED or REJECTED) (B1 fix)."""
+        with self._connection() as conn:
             rows = conn.execute(
                 """
                 SELECT r.* FROM releases r
-                LEFT JOIN user_feedback f ON r.release_id = f.release_id
+                LEFT JOIN user_feedback f ON r.release_id = f.release_id 
+                    AND f.decision IN ('ACCEPTED', 'REJECTED')
                 WHERE f.id IS NULL
                 ORDER BY r.published_at DESC
                 LIMIT ?
@@ -136,7 +153,7 @@ class RadarDatabase:
 
     def record_feedback(self, feedback: FeedbackRecord) -> None:
         """Store user feedback decision to train active learning memory."""
-        with self._get_connection() as conn:
+        with self._connection() as conn:
             conn.execute(
                 """
                 INSERT INTO user_feedback (release_id, project_or_repo, decision, reason, created_at)
@@ -150,11 +167,10 @@ class RadarDatabase:
                     feedback.timestamp,
                 ),
             )
-            conn.commit()
 
     def get_recent_feedback(self, limit: int = 15) -> List[FeedbackRecord]:
         """Fetch recent user feedback for few-shot prompt formulation."""
-        with self._get_connection() as conn:
+        with self._connection() as conn:
             rows = conn.execute(
                 """
                 SELECT * FROM user_feedback
@@ -178,7 +194,7 @@ class RadarDatabase:
     def set_user_profile(self, profile: UserStackProfile) -> None:
         """Update or set the current user stack profile."""
         now = datetime.now(timezone.utc).isoformat()
-        with self._get_connection() as conn:
+        with self._connection() as conn:
             conn.execute(
                 """
                 INSERT INTO user_profile (key, value, updated_at)
@@ -189,22 +205,28 @@ class RadarDatabase:
                 """,
                 (profile.model_dump_json(), now),
             )
-            conn.commit()
 
     def get_user_profile(self) -> UserStackProfile:
         """Get the current user stack profile, or default if not set."""
-        with self._get_connection() as conn:
+        with self._connection() as conn:
             row = conn.execute(
                 "SELECT value FROM user_profile WHERE key = 'stack_profile'"
             ).fetchone()
 
             if row:
                 return UserStackProfile.model_validate_json(row["value"])
-            
-            # Default profile if not yet configured
+
             return UserStackProfile(
                 keywords=["python", "fastapi", "pydantic", "asyncio", "llm-agents", "mcp"],
                 preferred_tools=["pydantic", "fastapi", "httpx", "litellm", "pytest"],
                 banned_patterns=["dynamic eval", "unbounded self-evolution", "heavy orchestration wrappers"],
-                notes="Standard AI engineering stack focusing on structured outputs and cost optimization."
+                notes="Standard AI engineering stack focusing on structured outputs and cost optimization.",
             )
+
+    def get_release_by_id(self, release_id: str) -> Optional[dict]:
+        """Retrieve release dict by release_id."""
+        with self._connection() as conn:
+            row = conn.execute("SELECT * FROM releases WHERE release_id = ?", (release_id,)).fetchone()
+            if row:
+                return dict(row)
+            return None

@@ -140,10 +140,9 @@ def radar_prepare_context7_verification(release_id: str) -> dict:
         Structured dictionary specifying library_id and target queries for Context7.
     """
     database = get_db()
-    with database._get_connection() as conn:
-        row = conn.execute("SELECT * FROM releases WHERE release_id = ?", (release_id,)).fetchone()
-        if not row:
-            return {"error": f"Release not found for ID: {release_id}"}
+    row = database.get_release_by_id(release_id)
+    if not row:
+        return {"error": f"Release not found for ID: {release_id}"}
 
     project = row["project_or_repo"].split("/")[-1].lower()
     version = row["version"] or ""
@@ -203,15 +202,20 @@ def radar_set_stack_profile(keywords: List[str], preferred_tools: List[str], ban
     """Update user developer profile and architectural focus.
     
     Args:
-        keywords: Domain keywords (e.g. ['python', 'trading', 'quant', 'mcp']).
-        preferred_tools: Target tools/libraries (e.g. ['pydantic', 'fastapi', 'litellm']).
-        banned_patterns: Disliked or unsafe patterns (e.g. ['eval', 'unbounded loops', 'heavy wrappers']).
+        keywords: Domain keywords (max 30 items, e.g. ['python', 'asyncio', 'mcp']).
+        preferred_tools: Target tools/libraries (max 30 items, e.g. ['pydantic', 'fastapi', 'litellm']).
+        banned_patterns: Disliked or unsafe patterns (max 30 items, e.g. ['eval', 'unbounded loops']).
     """
     database = get_db()
+    # Guard against oversized inputs / memory exhaustion (S5)
+    clean_keywords = [ContentSanitizer.sanitize_text(k.strip().lower(), max_length=50) for k in keywords[:30]]
+    clean_preferred = [ContentSanitizer.sanitize_text(t.strip().lower(), max_length=50) for t in preferred_tools[:30]]
+    clean_banned = [ContentSanitizer.sanitize_text(b.strip().lower(), max_length=50) for b in banned_patterns[:30]]
+
     profile = UserStackProfile(
-        keywords=[k.strip().lower() for k in keywords],
-        preferred_tools=[t.strip().lower() for t in preferred_tools],
-        banned_patterns=[b.strip().lower() for b in banned_patterns],
+        keywords=[k for k in clean_keywords if k],
+        preferred_tools=[t for t in clean_preferred if t],
+        banned_patterns=[b for b in clean_banned if b],
         notes="Updated via MCP tool",
     )
     database.set_user_profile(profile)

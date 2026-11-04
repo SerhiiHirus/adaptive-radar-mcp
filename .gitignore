@@ -48,7 +48,7 @@ credentials.json
 *.db
 *.sqlite3
 .adaptive-radar/
-.context/PROJECT_LOG.md.tmp
+.context/
 config/radar_config.yaml
 
 # Generated Reports

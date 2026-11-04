@@ -1,74 +1,74 @@
-# 🛰️ Adaptive Tech Radar MCP
+# Adaptive Tech Radar MCP
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![Model Context Protocol](https://img.shields.io/badge/protocol-MCP%202.x-green.svg)](https://modelcontextprotocol.io/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Code Style: Ruff / PEP8](https://img.shields.io/badge/code%20style-pep8-black.svg)](https://github.com/astral-sh/ruff)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![Code Style: PEP8](https://img.shields.io/badge/code%20style-pep8-black.svg)](https://peps.python.org/pep-0008/)
 
-An autonomous, self-learning Model Context Protocol (MCP) server that monitors cutting-edge AI, LLMOps, and developer tool releases, validates them against your architectural preferences via **Active Learning**, and estimates **Token ROI** before you adopt them.
+An autonomous, self-learning Model Context Protocol (MCP) server designed to monitor technical releases across the AI and LLMOps ecosystem, evaluate architectural applicability using **Active Learning**, and compute **Token ROI** prior to adoption.
 
-Pairs seamlessly with [Context7 MCP](https://github.com/modelcontextprotocol) for zero-hallucination schema verification.
-
----
-
-## 💡 The Problem
-
-Every week, dozens of AI frameworks, models, and libraries release updates. Most engineering teams face two failure modes:
-1. **The Hype Trap:** Blindly adopting raw, unstable abstractions that break production, introduce security vulnerabilities, and 3x prompt token consumption.
-2. **The Stagnation Trap:** Missing out on game-changing releases (like prompt caching, native structured outputs, or MCP schema servers) that could cut operational token costs by 50-80%.
-
-**Adaptive Tech Radar MCP solves this autonomously without requiring paid API keys.**
+Integrates with [Context7 MCP](https://github.com/modelcontextprotocol) for deterministic, zero-hallucination API schema verification.
 
 ---
 
-## 🏛️ Architecture & Flow
+## Overview
+
+Software teams adopting LLM frameworks face two operational challenges:
+1. **Unchecked Churn:** Blindly adopting experimental abstractions that break existing interfaces, introduce supply chain vulnerabilities, or significantly increase inference token overhead.
+2. **Delayed Optimization:** Missing foundational platform updates (such as API-level prompt caching, native structured outputs, or compact schema introspection) that reduce operational token expenditures by 50-80%.
+
+Adaptive Tech Radar MCP monitors upstream releases, compares them against a user-defined architectural profile, and dynamically refines its scoring based on human acceptance and rejection patterns.
+
+---
+
+## Architecture & Data Flow
 
 ```mermaid
 flowchart TD
-    subgraph "Zero-Key Autonomous Watchers"
-        A1["GitHub Releases API (Pydantic, LiteLLM, vLLM, etc.)"]
-        A2["Official AI Feeds (OpenAI, Anthropic, Google AI)"]
-        A3["Custom Changelog Ingestion / Webhooks"]
+    subgraph Ingestion ["Autonomous Ingestion (Zero API Keys)"]
+        A1["GitHub Releases API (ETag + SHA-256 Deduplication)"]
+        A2["Official Vendor Feeds (RSS / Atom)"]
+        A3["Manual Changelog Ingestion"]
     end
 
-    subgraph "Adaptive Radar Core (~/.adaptive-radar/)"
-        B["Deduplication Engine (SHA256 Content Hashes)"]
-        C[("Local SQLite Memory")]
+    subgraph Core ["Adaptive Radar Engine (~/.adaptive-radar/)"]
+        B["Deduplication Engine (SHA-256 Hashes)"]
+        C[("Embedded SQLite Memory")]
         D["Active Learning Bias Engine"]
-        E["Token ROI & Security Scorer"]
+        E["Token ROI & Policy Scorer"]
     end
 
-    subgraph "AI Agent (Claude Desktop / Cursor / Antigravity)"
+    subgraph Agent ["Agent Environment (Claude / Cursor / Antigravity)"]
         F["radar_check_updates()"]
         G["radar_record_feedback()"]
-        H["Context7 MCP (Official API Schemas)"]
+        H["Context7 MCP (Official API Verification)"]
     end
 
     A1 & A2 & A3 --> B --> C
     C --> D --> E
     E --> F
-    F <-->|Verify Docs & Signatures| H
-    F -->|User Decision: ACCEPT / REJECT| G
+    F <-->|Live Schema Verification| H
+    F -->|Decision: ACCEPT / REJECT| G
     G -->|Dynamic Few-Shot Learning| D
 ```
 
 ---
 
-## ⚡ Key Features
+## Core Capabilities
 
-- 🔄 **Autonomous Ingestion (Zero Keys):** Continuously tracks releases using public GitHub and RSS/Atom feeds with ETag and SHA-256 deduplication.
-- 🧠 **Active Learning Memory:** Learns from your decisions (`ACCEPTED` / `REJECTED`). If you reject heavy orchestration frameworks, the system automatically downranks similar libraries and biases towards your preferred tools (e.g., Pydantic, FastAPI).
-- 💰 **Token ROI Scoring:** Automatically identifies features that reduce token spend (prompt caching, structured output enforcement, thinking effort controls, compact MCP schemas).
-- 🛡️ **Supply Chain & Prompt Injection Defense:** Pre-screens updates for unsafe dynamic evaluation (`eval`), arbitrary shell execution, and breaking releases.
-- 🤝 **Synergy with Context7 MCP:** Produces structured queries for Context7 so your assistant verifies live API signatures before writing code.
+- **Keyless Autonomous Monitoring:** Continuously tracks upstream packages via public GitHub endpoints and RSS/Atom feeds using connection pooling (`httpx`), concurrent dispatch (`asyncio.gather`), and SHA-256 deduplication.
+- **Active Learning Preference Engine:** Maintains a historical vector of developer decisions (`ACCEPTED` / `REJECTED`). Unwanted architectural patterns (e.g., heavy orchestration layers) are automatically downranked over time.
+- **Token ROI Evaluation:** Scores releases based on explicit cost-reduction primitives: prompt caching, thinking effort controls, schema compression, and structured output enforcement.
+- **Execution & Supply Chain Boundaries:** Rejects dangerous runtime patterns (arbitrary `eval`, unconstrained subshell execution, unverified dynamic agents).
+- **Context7 Synergy:** Automatically suggests targeted queries for Context7 MCP to confirm live API signatures before implementation code is generated.
 
 ---
 
-## 🚀 Quickstart
+## Installation & Configuration
 
-### Option 1: Run with `uvx` (Recommended)
+### Option 1: uvx (Recommended)
 
-No installation required. Add directly to your Claude Desktop, Cursor, or Antigravity MCP configuration:
+Add directly to your client MCP configuration (`claude_desktop_config.json`, Cursor, or Antigravity):
 
 ```json
 {
@@ -84,46 +84,52 @@ No installation required. Add directly to your Claude Desktop, Cursor, or Antigr
 ### Option 2: Local Development
 
 ```bash
-git clone https://github.com/serhiihirus/adaptive-radar-mcp.git
+git clone https://github.com/SerhiiHirus/adaptive-radar-mcp.git
 cd adaptive-radar-mcp
 
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
 
-# Run tests
+# Run test suite
 pytest
 ```
 
 ---
 
-## 🛠️ MCP Tools Exposed
+## Protocol Specification: Exposed Tools
 
 | Tool | Parameters | Description |
 | :--- | :--- | :--- |
-| `radar_check_updates` | `fetch_remote: bool = True`, `limit: int = 5` | Fetches, screens, and scores the latest updates against your stack and token ROI. |
-| `radar_record_feedback` | `release_id: str`, `decision: str`, `reason: str` | Records user feedback (`ACCEPTED`, `REJECTED`, `OBSERVED`) to train active learning memory. |
-| `radar_set_stack_profile` | `keywords: list`, `preferred_tools: list`, `banned_patterns: list` | Configures your current architectural stack and constraints. |
-| `radar_ingest_custom` | `title: str`, `body: str`, `source_url: str` | Ingests a raw changelog draft or article manually. |
+| `radar_check_updates` | `fetch_remote: bool = True`, `limit: int = 5` | Collects, filters, and scores recent updates against the developer profile and Token ROI metrics. |
+| `radar_record_feedback` | `release_id: str`, `decision: str`, `reason: str` | Records user feedback (`ACCEPTED`, `REJECTED`, `OBSERVED`) to adjust active learning weights. |
+| `radar_set_stack_profile` | `keywords: list`, `preferred_tools: list`, `banned_patterns: list` | Configures architectural constraints, preferred packages, and explicit exclusions. |
+| `radar_ingest_custom` | `title: str`, `body: str`, `source_url: str` | Ingests a raw text draft, issue, or changelog snippet for immediate scoring. |
 
 ---
 
-## 🤝 Pairing with Context7 MCP
+## Verification Workflow with Context7 MCP
 
-For the ultimate agentic workflow, run **Adaptive Radar** alongside **Context7**:
+Adaptive Radar is designed to operate alongside Context7 to eliminate hallucinations during library upgrades:
 
-1. **Radar flags high-ROI release:**
-   > `[IMPLEMENT] PydanticAI v2.65: Dynamic thinking effort control. Token ROI: Saves 30-50% tokens.`
-2. **Context7 verifies live docs:**
-   The agent calls `mcp_context7_query-docs(library_id='pydantic-ai', query='thinking effort')`.
-3. **Verified Implementation:**
-   The agent writes production code using verified, non-hallucinated syntax.
+1. **Radar Identifies High-ROI Release:**
+   ```
+   [IMPLEMENT] PydanticAI v2.65.0: Dynamic thinking effort controls.
+   Token ROI: Saves 30-50% tokens by reducing reasoning steps on trivial extractions.
+   ```
+2. **Context7 Confirms Documentation:**
+   The agent queries live library schemas:
+   ```
+   mcp_context7_query-docs(library_id='pydantic-ai', query='thinking effort')
+   ```
+3. **Deterministic Implementation:**
+   The assistant constructs implementation code against validated, production-ready interfaces.
 
 ---
 
-## 🧪 Testing
+## Test Verification
 
-The test suite covers crawling, parsing, SQLite deduplication, scoring, and active learning feedback:
+The test suite validates XML security defenses (XXE / Entity Expansion mitigation), concurrent crawler execution, rate-limit resilience, SQLite isolation, and active learning weight adjustments:
 
 ```bash
 pytest -v
@@ -131,6 +137,6 @@ pytest -v
 
 ---
 
-## 📄 License
+## License
 
-MIT License. Designed and maintained by **Serhii Hirus**.
+MIT License. Authored and maintained by Serhii Hirus.

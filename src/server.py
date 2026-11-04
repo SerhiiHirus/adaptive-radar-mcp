@@ -90,15 +90,15 @@ async def radar_check_updates(fetch_remote: bool = True, limit: int = 5) -> str:
 
     # 5. Format human- and agent-friendly output
     lines = [
-        f"## 🛰 Adaptive Tech Radar — Evaluated {len(releases)} updates",
+        f"## Adaptive Tech Radar — Evaluated {len(releases)} updates",
         f"> Profile: `{', '.join(profile.preferred_tools)}` | Learned decisions in memory: `{len(feedback_history)}`",
         "",
     ]
 
     for ev in top_evals:
-        score_emoji = "🟢" if ev.score >= 7.0 else ("🟡" if ev.score >= 4.5 else "⚪")
+        priority = "HIGH" if ev.score >= 7.0 else ("MEDIUM" if ev.score >= 4.5 else "LOW")
         lines.extend([
-            f"### {score_emoji} [{ev.recommended_action}] {ev.title} (Score: {ev.score}/10)",
+            f"### [{priority}] [{ev.recommended_action}] {ev.title} (Score: {ev.score}/10)",
             f"- **Release ID:** `{ev.release_id}`",
             f"- **URL:** {ev.url}",
             f"- **Token ROI:** {ev.token_roi_summary}",
@@ -111,7 +111,7 @@ async def radar_check_updates(fetch_remote: bool = True, limit: int = 5) -> str:
 
     lines.extend([
         "---",
-        "💡 **Active Learning Training:** Use `radar_record_feedback(release_id, decision, reason)` to approve/reject any item. Your decisions will refine future ratings.",
+        "Active Learning: Use `radar_record_feedback(release_id, decision, reason)` to approve/reject any item and refine future ratings.",
     ])
 
     return "\n".join(lines)

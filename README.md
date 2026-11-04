@@ -66,16 +66,16 @@ flowchart TD
 
 ## Installation & Configuration
 
-### Option 1: uvx (Recommended)
+### Option 1: uvx (Zero Installation via GitHub)
 
-Add directly to your client MCP configuration (`claude_desktop_config.json`, Cursor, or Antigravity):
+Add directly to your client MCP configuration (`claude_desktop_config.json`, Cursor, or Antigravity `mcp_config.json`):
 
 ```json
 {
   "mcpServers": {
     "adaptive-radar": {
       "command": "uvx",
-      "args": ["adaptive-radar-mcp"]
+      "args": ["--from", "git+https://github.com/SerhiiHirus/adaptive-radar-mcp.git", "adaptive-radar-mcp"]
     }
   }
 }
@@ -93,6 +93,18 @@ pip install -e ".[dev]"
 
 # Run test suite
 pytest
+```
+
+For local environments, configure your client to point to the virtualenv binary:
+```json
+{
+  "mcpServers": {
+    "adaptive-radar": {
+      "command": "/absolute/path/to/adaptive-radar-mcp/.venv/bin/adaptive-radar-mcp",
+      "args": []
+    }
+  }
+}
 ```
 
 ---

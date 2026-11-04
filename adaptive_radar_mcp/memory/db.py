@@ -1,4 +1,4 @@
-"""SQLite storage layer for adaptive-radar-mcp with strict permissions and proper lifecycle."""
+"""SQLite storage layer for adaptive-radar-mcp with WAL mode, indexes, and strict permissions."""
 
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -16,6 +16,8 @@ from adaptive_radar_mcp.models import (
     UserStackProfile,
 )
 
+CURRENT_SCHEMA_VERSION = 1
+
 
 class RadarDatabase:
     """Manages local SQLite database for releases and active learning feedback."""
@@ -32,19 +34,31 @@ class RadarDatabase:
 
         self.db_path = db_path
         self._init_db()
+        self._enforce_file_permissions()
 
-        # Enforce strict file permissions on database file
-        try:
-            if self.db_path.exists():
-                os.chmod(self.db_path, 0o600)
-        except OSError:
-            pass
+    def _enforce_file_permissions(self) -> None:
+        """Enforce strict 0o600 permissions on database, WAL, and SHM files."""
+        base_dir = self.db_path.parent
+        for filename in [self.db_path.name, f"{self.db_path.name}-wal", f"{self.db_path.name}-shm"]:
+            target = base_dir / filename
+            if target.exists():
+                try:
+                    os.chmod(target, 0o600)
+                except OSError:
+                    pass
 
     @contextmanager
     def _connection(self) -> Generator[sqlite3.Connection, None, None]:
-        """Context manager that commits on success and closes the connection cleanly."""
+        """Context manager that configures per-connection PRAGMAs, commits on success, and closes."""
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
+        
+        # Configure per-connection concurrency and resilience PRAGMAs
+        conn.execute("PRAGMA journal_mode = WAL;")
+        conn.execute("PRAGMA busy_timeout = 5000;")
+        conn.execute("PRAGMA synchronous = NORMAL;")
+        conn.execute("PRAGMA foreign_keys = ON;")
+        
         try:
             yield conn
             conn.commit()
@@ -53,10 +67,12 @@ class RadarDatabase:
             raise
         finally:
             conn.close()
+            self._enforce_file_permissions()
 
     def _init_db(self) -> None:
-        """Create tables if they do not exist."""
+        """Create tables, indexes, and configure schema version."""
         with self._connection() as conn:
+            # 1. Base tables
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS releases (
                     release_id TEXT PRIMARY KEY,
@@ -91,8 +107,18 @@ class RadarDatabase:
                 );
             """)
 
+            # 2. Performance indexes
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_releases_published ON releases(published_at DESC);")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_releases_repo ON releases(project_or_repo);")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_feedback_release ON user_feedback(release_id);")
+
+            # 3. Schema version
+            version_row = conn.execute("PRAGMA user_version;").fetchone()
+            if version_row and version_row[0] == 0:
+                conn.execute(f"PRAGMA user_version = {CURRENT_SCHEMA_VERSION};")
+
     def save_release(self, release: TechRelease) -> bool:
-        """Insert or update a release. Updates body/title if changed (B4 fix)."""
+        """Insert or update a release. Updates title/body if content changed."""
         now = datetime.now(timezone.utc).isoformat()
         with self._connection() as conn:
             cursor = conn.execute(
@@ -122,7 +148,7 @@ class RadarDatabase:
             return cursor.rowcount > 0
 
     def get_unreviewed_releases(self, limit: int = 20) -> List[TechRelease]:
-        """Fetch releases that haven't received a final decision (ACCEPTED or REJECTED) (B1 fix)."""
+        """Fetch releases that haven't received a final decision (ACCEPTED or REJECTED)."""
         with self._connection() as conn:
             rows = conn.execute(
                 """

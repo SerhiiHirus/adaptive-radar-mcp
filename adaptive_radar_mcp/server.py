@@ -1,14 +1,13 @@
-"""FastMCP Server for Adaptive Tech Radar & Active Learning."""
+"""FastMCP Server for Adaptive Tech Radar: Tools, Resources, Prompts, and Security Gates."""
 
 import asyncio
 from datetime import datetime, timezone
 import hashlib
-import importlib.resources
+import json
 import logging
 from pathlib import Path
 import re
 from typing import List, Optional
-import yaml
 
 try:
     from mcp.server.fastmcp import FastMCP
@@ -28,6 +27,8 @@ from adaptive_radar_mcp.models import (
     UserStackProfile,
 )
 from adaptive_radar_mcp.sanitizer import ContentSanitizer
+from adaptive_radar_mcp.scanner.manifest import ManifestScanner
+from adaptive_radar_mcp.sources import SourcesManager
 
 logger = logging.getLogger("adaptive-radar")
 mcp = FastMCP("adaptive-radar-mcp")
@@ -38,18 +39,92 @@ def get_db() -> RadarDatabase:
     return RadarDatabase()
 
 
-def _load_sources_config() -> dict:
-    """Load default sources safely from packaged resources or fallback."""
-    try:
-        data_file = importlib.resources.files("adaptive_radar_mcp.data").joinpath("default_sources.yaml")
-        content = data_file.read_text(encoding="utf-8")
-        return yaml.safe_load(content) or {}
-    except Exception as e:
-        logger.warning("Could not read packaged default_sources.yaml (%s). Using fallback.", e)
-        return {
-            "github_repositories": ["pydantic/pydantic-ai", "BerriAI/litellm"],
-            "rss_feeds": [],
+def get_sources_manager() -> SourcesManager:
+    """Return dynamic sources manager."""
+    return SourcesManager()
+
+
+# ============================================================================
+# 1. MCP RESOURCES (Direct Structured State without Tool Call Overhead)
+# ============================================================================
+
+@mcp.resource("radar://profile")
+def get_radar_profile_resource() -> str:
+    """Read active developer stack profile and preference constraints."""
+    db = get_db()
+    profile = db.get_user_profile()
+    return profile.model_dump_json(indent=2)
+
+
+@mcp.resource("radar://releases/recent")
+def get_recent_releases_resource() -> str:
+    """Read recent evaluated releases (Metadata Only: raw body excluded for security)."""
+    db = get_db()
+    releases = db.get_unreviewed_releases(limit=15)
+    # Output only sanitized metadata to prevent context hijacking on auto-load
+    metadata_list = [
+        {
+            "release_id": r.release_id,
+            "project_or_repo": r.project_or_repo,
+            "version": r.version,
+            "title": r.title,
+            "url": r.url,
+            "published_at": r.published_at,
         }
+        for r in releases
+    ]
+    return json.dumps(metadata_list, indent=2)
+
+
+@mcp.resource("radar://sources")
+def get_sources_resource() -> str:
+    """Read active upstream tracking sources and configurations."""
+    mgr = get_sources_manager()
+    return json.dumps(mgr.load_sources(), indent=2)
+
+
+# ============================================================================
+# 2. MCP PROMPTS (Standardized Guided Workflows)
+# ============================================================================
+
+@mcp.prompt("radar-upgrade-audit")
+def radar_upgrade_audit_prompt() -> str:
+    """Workflow prompt guiding the assistant through workspace dependency audit and verified upgrades."""
+    return (
+        "You are performing an architectural dependency audit using Adaptive Tech Radar.\n\n"
+        "Instructions:\n"
+        "1. First, call `radar_scan_workspace(directory='.')` to inspect local manifests (pyproject.toml, requirements.txt, package.json).\n"
+        "2. Next, call `radar_check_updates()` to fetch recent verified releases matching your detected libraries.\n"
+        "3. For any release marked [HIGH] or [IMPLEMENT], call `radar_prepare_context7_verification(release_id)`.\n"
+        "4. Query Context7 MCP with the prepared parameters to verify the live API signatures.\n"
+        "5. Formulate a concise upgrade recommendation showing: Target Library, Current Version, New Version, Token ROI benefit, and verified code snippet."
+    )
+
+
+# ============================================================================
+# 3. MCP TOOLS (Active Operations, Scanning, and Feedback)
+# ============================================================================
+
+@mcp.tool()
+def radar_scan_workspace(directory: str = ".") -> dict:
+    """Safely scan project workspace for dependency manifests (pyproject.toml, requirements.txt, package.json).
+    
+    Args:
+        directory: Target directory within current project boundary (Path traversal is strictly prevented).
+    Returns:
+        Structured dictionary of detected dependencies and versions (Read-Only).
+    """
+    try:
+        detected = ManifestScanner.scan_directory(directory)
+        return {
+            "status": "SUCCESS",
+            "directory": directory,
+            "dependencies_count": len(detected),
+            "detected_packages": detected,
+            "recommendation": "Use `radar_set_stack_profile` if you wish to apply these packages to your radar preferences."
+        }
+    except Exception as e:
+        return {"status": "ERROR", "message": str(e)}
 
 
 @mcp.tool()
@@ -60,28 +135,28 @@ async def radar_check_updates(fetch_remote: bool = True, limit: int = 5) -> str:
         fetch_remote: If True, queries tracked GitHub releases and RSS feeds before scoring.
         limit: Maximum number of evaluated recommendations to return.
     """
-    config = _load_sources_config()
+    mgr = get_sources_manager()
+    config = mgr.load_sources()
     database = get_db()
 
     if fetch_remote:
-        # 1. Fetch GitHub releases concurrently
+        # 1. Fetch GitHub releases concurrently with ETag caching
         repos = config.get("github_repositories", [])
         if repos:
             gh_crawler = GitHubReleasesCrawler()
             gh_releases = await gh_crawler.fetch_all(repos)
             for rel in gh_releases:
-                # Sanitize release content before persisting
-                rel.title = ContentSanitizer.sanitize_text(rel.title, max_length=150)
+                rel.title = ContentSanitizer.sanitize_title(rel.title)
                 rel.body = ContentSanitizer.sanitize_text(rel.body, max_length=1000)
                 database.save_release(rel)
 
-        # 2. Fetch RSS feeds concurrently
+        # 2. Fetch RSS feeds concurrently with defusedxml and 2MB limit
         feeds = config.get("rss_feeds", [])
         if feeds:
             rss_crawler = RSSCrawler()
             feed_items = await rss_crawler.fetch_all(feeds, limit_per_feed=2)
             for item in feed_items:
-                item.title = ContentSanitizer.sanitize_text(item.title, max_length=150)
+                item.title = ContentSanitizer.sanitize_title(item.title)
                 item.body = ContentSanitizer.sanitize_text(item.body, max_length=1000)
                 database.save_release(item)
 
@@ -101,7 +176,7 @@ async def radar_check_updates(fetch_remote: bool = True, limit: int = 5) -> str:
     evaluations.sort(key=lambda e: e.score, reverse=True)
     top_evals = evaluations[:limit]
 
-    # 5. Format human- and agent-friendly output with sanitized summaries
+    # 5. Format output
     lines = [
         f"## Adaptive Tech Radar — Evaluated {len(releases)} updates",
         f"> Stack: `{', '.join(profile.preferred_tools)}` | Decisions in memory: `{len(feedback_history)}`",
@@ -169,6 +244,50 @@ def radar_prepare_context7_verification(release_id: str) -> dict:
 
 
 @mcp.tool()
+def radar_add_source(source_type: str, target: str, name: str = "") -> str:
+    """Add a new GitHub repository or RSS feed to the radar monitor with strict SSRF defense.
+    
+    Args:
+        source_type: One of 'github' (for GitHub repo owner/name) or 'rss' (for HTTPS RSS/Atom feed).
+        target: For 'github', provide 'owner/repo' (e.g. 'fastapi/fastapi'). For 'rss', provide HTTPS URL.
+        name: Optional human-readable name for RSS feed.
+    """
+    mgr = get_sources_manager()
+    stype = source_type.lower().strip()
+    try:
+        if stype == "github":
+            return mgr.add_github_repo(target)
+        elif stype == "rss":
+            feed_name = name.strip() or target
+            return mgr.add_rss_feed(feed_name, target)
+        else:
+            return f"Error: source_type must be 'github' or 'rss' (got: '{source_type}')."
+    except Exception as e:
+        return f"Source Validation Failed: {e}"
+
+
+@mcp.tool()
+def radar_list_sources() -> dict:
+    """List all currently configured upstream tracking sources."""
+    mgr = get_sources_manager()
+    return mgr.load_sources()
+
+
+@mcp.tool()
+def radar_remove_source(identifier: str) -> str:
+    """Remove a tracked source by repository identifier or RSS URL.
+    
+    Args:
+        identifier: 'owner/repo' or RSS URL/Name to remove.
+    """
+    mgr = get_sources_manager()
+    success = mgr.remove_source(identifier.strip())
+    if success:
+        return f"Successfully removed source '{identifier}'."
+    return f"Source '{identifier}' was not found in active configuration."
+
+
+@mcp.tool()
 def radar_record_feedback(release_id: str, decision: str, reason: str) -> str:
     """Record developer's decision (ACCEPTED, REJECTED, OBSERVED) to train active learning memory.
     
@@ -207,7 +326,6 @@ def radar_set_stack_profile(keywords: List[str], preferred_tools: List[str], ban
         banned_patterns: Disliked or unsafe patterns (max 30 items, e.g. ['eval', 'unbounded loops']).
     """
     database = get_db()
-    # Guard against oversized inputs / memory exhaustion (S5)
     clean_keywords = [ContentSanitizer.sanitize_text(k.strip().lower(), max_length=50) for k in keywords[:30]]
     clean_preferred = [ContentSanitizer.sanitize_text(t.strip().lower(), max_length=50) for t in preferred_tools[:30]]
     clean_banned = [ContentSanitizer.sanitize_text(b.strip().lower(), max_length=50) for b in banned_patterns[:30]]
@@ -231,7 +349,7 @@ def radar_ingest_custom(title: str, body: str, source_url: str = "") -> str:
         body: Body text or description.
         source_url: Optional source link.
     """
-    clean_title = ContentSanitizer.sanitize_text(title, max_length=150)
+    clean_title = ContentSanitizer.sanitize_title(title, max_length=150)
     clean_body = ContentSanitizer.sanitize_text(body, max_length=2000)
 
     content_raw = f"{clean_title}:{clean_body}"

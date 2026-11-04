@@ -1,7 +1,6 @@
 """Safety and security inspection for AI updates."""
 
 import re
-from typing import Tuple
 
 
 class SafetyChecker:
@@ -21,7 +20,7 @@ class SafetyChecker:
     ]
 
     @classmethod
-    def inspect(cls, title: str, body: str) -> Tuple[str, str]:
+    def inspect(cls, title: str, body: str) -> tuple[str, str]:
         """Returns (verdict, reason). Verdict is one of SAFE, WARNING, UNSAFE."""
         combined = f"{title}\n{body}".lower()
 

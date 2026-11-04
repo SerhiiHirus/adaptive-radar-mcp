@@ -1,7 +1,7 @@
 """Tests for secure manifest scanning and path traversal protections."""
 
-from pathlib import Path
 import pytest
+
 from adaptive_radar_mcp.scanner.manifest import ManifestScanner
 
 
@@ -51,3 +51,24 @@ def test_path_traversal_blocking(tmp_path):
         ManifestScanner.scan_directory("../../", allowed_root=allowed_dir)
 
     assert "Path Traversal Blocked" in str(exc_info.value)
+
+
+def test_radar_scan_workspace_tool_integration(tmp_path, monkeypatch):
+    """Verify tool execution and auto-apply profile capability."""
+    monkeypatch.setenv("RADAR_STORAGE_DIR", str(tmp_path))
+    monkeypatch.setenv("RADAR_WORKSPACE_ROOT", str(tmp_path))
+    from adaptive_radar_mcp.memory.db import RadarDatabase
+    from adaptive_radar_mcp.server import radar_scan_workspace
+
+    # Create dummy requirements in tmp_path
+    req = tmp_path / "requirements.txt"
+    req.write_text("pydantic>=2.7.0\nfastapi>=0.110.0\n")
+
+    res = radar_scan_workspace(directory=str(tmp_path), apply_to_profile=True)
+    assert res["status"] == "SUCCESS"
+    assert res["profile_updated"] is True
+    assert "pydantic" in res["detected_packages"]
+
+    db = RadarDatabase()
+    profile = db.get_user_profile()
+    assert "pydantic" in profile.preferred_tools

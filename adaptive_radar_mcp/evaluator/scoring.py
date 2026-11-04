@@ -1,11 +1,15 @@
 """Release evaluator: Computes Token ROI, Stack Match, Safety, and Context7 suggestions."""
 
 import re
-from typing import List, Optional
 
 from adaptive_radar_mcp.evaluator.safety import SafetyChecker
 from adaptive_radar_mcp.memory.active_learning import ActiveLearningEngine
-from adaptive_radar_mcp.models import EvaluationResult, FeedbackRecord, TechRelease, UserStackProfile
+from adaptive_radar_mcp.models import (
+    EvaluationResult,
+    FeedbackRecord,
+    TechRelease,
+    UserStackProfile,
+)
 
 
 class ReleaseEvaluator:
@@ -26,7 +30,7 @@ class ReleaseEvaluator:
         cls, 
         release: TechRelease, 
         profile: UserStackProfile, 
-        feedback_history: Optional[List[FeedbackRecord]] = None
+        feedback_history: list[FeedbackRecord] | None = None
     ) -> EvaluationResult:
         """Score a release from 0.0 to 10.0."""
         text_full = f"{release.title}\n{release.body}".lower()

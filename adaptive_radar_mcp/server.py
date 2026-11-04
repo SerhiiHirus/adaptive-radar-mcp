@@ -1,13 +1,13 @@
 """FastMCP Server for Adaptive Tech Radar: Tools, Resources, Prompts, and Security Gates."""
 
 import asyncio
-from datetime import datetime, timezone
 import hashlib
 import json
 import logging
-from pathlib import Path
+import os
 import re
-from typing import List, Optional
+from datetime import datetime, timezone
+from pathlib import Path
 
 try:
     from mcp.server.fastmcp import FastMCP
@@ -17,7 +17,6 @@ except (ImportError, ModuleNotFoundError):
 from adaptive_radar_mcp.crawler.github_releases import GitHubReleasesCrawler
 from adaptive_radar_mcp.crawler.rss_crawler import RSSCrawler
 from adaptive_radar_mcp.evaluator.scoring import ReleaseEvaluator
-from adaptive_radar_mcp.memory.active_learning import ActiveLearningEngine
 from adaptive_radar_mcp.memory.db import RadarDatabase
 from adaptive_radar_mcp.models import (
     DecisionType,
@@ -106,22 +105,34 @@ def radar_upgrade_audit_prompt() -> str:
 # ============================================================================
 
 @mcp.tool()
-def radar_scan_workspace(directory: str = ".") -> dict:
+def radar_scan_workspace(directory: str = ".", apply_to_profile: bool = False) -> dict:
     """Safely scan project workspace for dependency manifests (pyproject.toml, requirements.txt, package.json).
     
     Args:
         directory: Target directory within current project boundary (Path traversal is strictly prevented).
+        apply_to_profile: If True, automatically merges detected dependencies into preferred tools profile.
     Returns:
-        Structured dictionary of detected dependencies and versions (Read-Only).
+        Structured dictionary of detected dependencies and status.
     """
     try:
-        detected = ManifestScanner.scan_directory(directory)
+        allowed_root = Path(os.environ.get("RADAR_WORKSPACE_ROOT", Path.cwd()))
+        detected = ManifestScanner.scan_directory(directory, allowed_root=allowed_root)
+        applied = False
+        if apply_to_profile and detected:
+            db = get_db()
+            profile = db.get_user_profile()
+            merged_tools = sorted(set(profile.preferred_tools + list(detected.keys())))[:30]
+            profile.preferred_tools = merged_tools
+            db.set_user_profile(profile)
+            applied = True
+
         return {
             "status": "SUCCESS",
             "directory": directory,
             "dependencies_count": len(detected),
             "detected_packages": detected,
-            "recommendation": "Use `radar_set_stack_profile` if you wish to apply these packages to your radar preferences."
+            "profile_updated": applied,
+            "recommendation": "Dependencies successfully linked to radar preferences." if applied else "Pass apply_to_profile=True to link these packages directly."
         }
     except Exception as e:
         return {"status": "ERROR", "message": str(e)}
@@ -140,25 +151,24 @@ async def radar_check_updates(fetch_remote: bool = True, limit: int = 5) -> str:
     database = get_db()
 
     if fetch_remote:
-        # 1. Fetch GitHub releases concurrently with ETag caching
+        # Fetch GitHub releases and RSS feeds concurrently in parallel
         repos = config.get("github_repositories", [])
-        if repos:
-            gh_crawler = GitHubReleasesCrawler()
-            gh_releases = await gh_crawler.fetch_all(repos)
-            for rel in gh_releases:
-                rel.title = ContentSanitizer.sanitize_title(rel.title)
-                rel.body = ContentSanitizer.sanitize_text(rel.body, max_length=1000)
-                database.save_release(rel)
-
-        # 2. Fetch RSS feeds concurrently with defusedxml and 2MB limit
         feeds = config.get("rss_feeds", [])
-        if feeds:
-            rss_crawler = RSSCrawler()
-            feed_items = await rss_crawler.fetch_all(feeds, limit_per_feed=2)
-            for item in feed_items:
-                item.title = ContentSanitizer.sanitize_title(item.title)
-                item.body = ContentSanitizer.sanitize_text(item.body, max_length=1000)
-                database.save_release(item)
+
+        gh_task = GitHubReleasesCrawler().fetch_all(repos) if repos else asyncio.sleep(0, result=[])
+        rss_task = RSSCrawler().fetch_all(feeds, limit_per_feed=2) if feeds else asyncio.sleep(0, result=[])
+
+        gh_releases, feed_items = await asyncio.gather(gh_task, rss_task)
+
+        for rel in gh_releases:
+            rel.title = ContentSanitizer.sanitize_title(rel.title)
+            rel.body = ContentSanitizer.sanitize_text(rel.body, max_length=1000)
+            database.save_release(rel)
+
+        for item in feed_items:
+            item.title = ContentSanitizer.sanitize_title(item.title)
+            item.body = ContentSanitizer.sanitize_text(item.body, max_length=1000)
+            database.save_release(item)
 
     # 3. Retrieve unreviewed releases from DB
     releases = database.get_unreviewed_releases(limit=25)
@@ -317,7 +327,7 @@ def radar_record_feedback(release_id: str, decision: str, reason: str) -> str:
 
 
 @mcp.tool()
-def radar_set_stack_profile(keywords: List[str], preferred_tools: List[str], banned_patterns: List[str]) -> str:
+def radar_set_stack_profile(keywords: list[str], preferred_tools: list[str], banned_patterns: list[str]) -> str:
     """Update user developer profile and architectural focus.
     
     Args:

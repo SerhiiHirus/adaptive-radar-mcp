@@ -1,9 +1,10 @@
 """Unit tests for crawler components, ETag caching, and defusedxml."""
 
-import pytest
 import httpx
-from adaptive_radar_mcp.crawler.rss_crawler import RSSCrawler, _parse_to_iso
+import pytest
+
 from adaptive_radar_mcp.crawler.github_releases import GitHubReleasesCrawler
+from adaptive_radar_mcp.crawler.rss_crawler import RSSCrawler, _parse_to_iso
 
 
 @pytest.mark.asyncio

@@ -2,16 +2,19 @@
 
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List
 
-from adaptive_radar_mcp.models import ChangelogDraft, RadarEvaluation, RecommendationStatus
+from adaptive_radar_mcp.models import (
+    ChangelogDraft,
+    RadarEvaluation,
+    RecommendationStatus,
+)
 
 
 class RadarExporter:
     """Formats radar evaluations into clean markdown reports."""
 
     @classmethod
-    def format_markdown(cls, draft: ChangelogDraft, evaluations: List[RadarEvaluation]) -> str:
+    def format_markdown(cls, draft: ChangelogDraft, evaluations: list[RadarEvaluation]) -> str:
         """Format evaluations into a human-readable markdown report."""
         recommended = [e for e in evaluations if e.status == RecommendationStatus.RECOMMENDED]
         monitor = [e for e in evaluations if e.status == RecommendationStatus.MONITOR]
@@ -72,7 +75,7 @@ class RadarExporter:
         return "\n".join(lines)
 
     @classmethod
-    def save_report(cls, draft: ChangelogDraft, evaluations: List[RadarEvaluation], output_dir: Path) -> Path:
+    def save_report(cls, draft: ChangelogDraft, evaluations: list[RadarEvaluation], output_dir: Path) -> Path:
         """Save report to disk."""
         output_dir.mkdir(parents=True, exist_ok=True)
         filename = f"{draft.date.replace('.', '-')}_radar_report.md"

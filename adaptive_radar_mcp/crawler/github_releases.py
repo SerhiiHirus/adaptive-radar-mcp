@@ -4,7 +4,7 @@ import asyncio
 import hashlib
 import logging
 import os
-from typing import Dict, List, Optional
+
 import httpx
 
 from adaptive_radar_mcp.models import SourceType, TechRelease
@@ -16,7 +16,7 @@ logger = logging.getLogger("adaptive-radar.github")
 class GitHubReleasesCrawler:
     """Fetches latest releases from GitHub repositories concurrently with ETag caching."""
 
-    def __init__(self, token: Optional[str] = None, concurrency_limit: int = 5):
+    def __init__(self, token: str | None = None, concurrency_limit: int = 5):
         self.token = token or os.environ.get("GITHUB_TOKEN")
         self.headers = {
             "Accept": "application/vnd.github.v3+json",
@@ -25,9 +25,9 @@ class GitHubReleasesCrawler:
         if self.token:
             self.headers["Authorization"] = f"Bearer {self.token}"
         self.semaphore = asyncio.Semaphore(concurrency_limit)
-        self._etags: Dict[str, str] = {}
+        self._etags: dict[str, str] = {}
 
-    async def fetch_latest_release(self, client: httpx.AsyncClient, repo: str) -> Optional[TechRelease]:
+    async def fetch_latest_release(self, client: httpx.AsyncClient, repo: str) -> TechRelease | None:
         """Fetch the latest published release for owner/repo with ETag support."""
         url = f"https://api.github.com/repos/{repo}/releases/latest"
         req_headers = dict(self.headers)
@@ -84,7 +84,7 @@ class GitHubReleasesCrawler:
                 logger.debug("Network error fetching release for %s: %s", repo, e)
                 return None
 
-    async def fetch_all(self, repos: List[str]) -> List[TechRelease]:
+    async def fetch_all(self, repos: list[str]) -> list[TechRelease]:
         """Fetch latest releases concurrently using a pooled HTTP client."""
         if not repos:
             return []
@@ -93,7 +93,7 @@ class GitHubReleasesCrawler:
             tasks = [self.fetch_latest_release(client, repo) for repo in repos]
             results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        releases: List[TechRelease] = []
+        releases: list[TechRelease] = []
         for r in results:
             if isinstance(r, TechRelease):
                 releases.append(r)

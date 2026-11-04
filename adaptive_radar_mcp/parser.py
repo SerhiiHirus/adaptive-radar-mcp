@@ -2,7 +2,6 @@
 
 import re
 from pathlib import Path
-from typing import List, Optional
 
 from adaptive_radar_mcp.models import ChangelogDraft, ChangelogItem, UpdateCategory
 
@@ -36,7 +35,7 @@ class ChangelogParser:
             backlog_summary = backlog_match.group(1).strip()
 
         # Split content into categories
-        items: List[ChangelogItem] = []
+        items: list[ChangelogItem] = []
         current_category = UpdateCategory.GENERAL
 
         for line in lines:
@@ -78,7 +77,7 @@ class ChangelogParser:
         cls, 
         text: str, 
         category: UpdateCategory, 
-        backlog_text: Optional[str] = None
+        backlog_text: str | None = None
     ) -> ChangelogItem:
         """Extract tool name, version, and details from an item line."""
         # Clean source markers like (Джерело) or [Source]

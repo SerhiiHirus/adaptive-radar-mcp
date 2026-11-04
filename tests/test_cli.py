@@ -2,7 +2,6 @@
 
 import subprocess
 import sys
-from pathlib import Path
 
 
 def test_cli_execution_with_text(tmp_path):

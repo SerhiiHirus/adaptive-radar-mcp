@@ -3,7 +3,7 @@
 import importlib.resources
 import os
 from pathlib import Path
-from typing import Dict, List, Optional
+
 import yaml
 
 from adaptive_radar_mcp.crawler.validator import SourceValidator
@@ -12,7 +12,7 @@ from adaptive_radar_mcp.crawler.validator import SourceValidator
 class SourcesManager:
     """Manages dynamic user sources stored in ~/.adaptive-radar/sources.yaml with fallback to defaults."""
 
-    def __init__(self, config_dir: Optional[Path] = None):
+    def __init__(self, config_dir: Path | None = None):
         if config_dir is None:
             storage_dir = os.environ.get("RADAR_STORAGE_DIR")
             if storage_dir:
@@ -70,7 +70,7 @@ class SourcesManager:
         """Validate and add a new GitHub repo source."""
         valid_repo = SourceValidator.validate_github_repo(repo_identifier)
         sources = self.load_sources()
-        repos: List[str] = sources.setdefault("github_repositories", [])
+        repos: list[str] = sources.setdefault("github_repositories", [])
         if valid_repo in repos:
             return f"Source '{valid_repo}' is already tracked."
 
@@ -82,7 +82,7 @@ class SourcesManager:
         """Validate and add a new RSS feed source."""
         valid_url = SourceValidator.validate_rss_url(url)
         sources = self.load_sources()
-        feeds: List[dict] = sources.setdefault("rss_feeds", [])
+        feeds: list[dict] = sources.setdefault("rss_feeds", [])
         for f in feeds:
             if f.get("url") == valid_url:
                 return f"Feed with URL '{valid_url}' is already tracked."

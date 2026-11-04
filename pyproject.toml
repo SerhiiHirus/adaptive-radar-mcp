@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "adaptive-radar-mcp"
-version = "0.2.0"
+version = "0.3.0"
 description = "Autonomous Tech Radar MCP server with active learning heuristics and token cost optimization detection"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -24,6 +24,7 @@ dependencies = [
 dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
+    "ruff>=0.4.0",
 ]
 
 [project.scripts]
@@ -40,3 +41,11 @@ pythonpath = ["."]
 asyncio_mode = "strict"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501", "UP006", "UP035", "B008", "B904"]

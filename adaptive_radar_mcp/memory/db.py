@@ -1,12 +1,11 @@
 """SQLite storage layer for adaptive-radar-mcp with WAL mode, indexes, and strict permissions."""
 
+import os
+import sqlite3
+from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import datetime, timezone
-import json
-import os
 from pathlib import Path
-import sqlite3
-from typing import Generator, List, Optional
 
 from adaptive_radar_mcp.models import (
     DecisionType,
@@ -22,7 +21,7 @@ CURRENT_SCHEMA_VERSION = 1
 class RadarDatabase:
     """Manages local SQLite database for releases and active learning feedback."""
 
-    def __init__(self, db_path: Optional[Path] = None):
+    def __init__(self, db_path: Path | None = None):
         if db_path is None:
             storage_dir = os.environ.get("RADAR_STORAGE_DIR")
             if storage_dir:
@@ -147,7 +146,7 @@ class RadarDatabase:
             )
             return cursor.rowcount > 0
 
-    def get_unreviewed_releases(self, limit: int = 20) -> List[TechRelease]:
+    def get_unreviewed_releases(self, limit: int = 20) -> list[TechRelease]:
         """Fetch releases that haven't received a final decision (ACCEPTED or REJECTED)."""
         with self._connection() as conn:
             rows = conn.execute(
@@ -194,7 +193,7 @@ class RadarDatabase:
                 ),
             )
 
-    def get_recent_feedback(self, limit: int = 15) -> List[FeedbackRecord]:
+    def get_recent_feedback(self, limit: int = 15) -> list[FeedbackRecord]:
         """Fetch recent user feedback for few-shot prompt formulation."""
         with self._connection() as conn:
             rows = conn.execute(
@@ -249,7 +248,7 @@ class RadarDatabase:
                 notes="Standard AI engineering stack focusing on structured outputs and cost optimization.",
             )
 
-    def get_release_by_id(self, release_id: str) -> Optional[dict]:
+    def get_release_by_id(self, release_id: str) -> dict | None:
         """Retrieve release dict by release_id."""
         with self._connection() as conn:
             row = conn.execute("SELECT * FROM releases WHERE release_id = ?", (release_id,)).fetchone()

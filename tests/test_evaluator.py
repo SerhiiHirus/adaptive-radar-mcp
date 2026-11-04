@@ -2,8 +2,6 @@
 
 from adaptive_radar_mcp.evaluator.scoring import ReleaseEvaluator
 from adaptive_radar_mcp.models import (
-    DecisionType,
-    FeedbackRecord,
     SourceType,
     TechRelease,
     UserStackProfile,

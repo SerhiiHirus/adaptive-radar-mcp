@@ -1,11 +1,11 @@
 """Lightweight RSS/Atom feed crawler with defusedxml protection and size limits."""
 
 import asyncio
-from datetime import datetime, timezone
 import email.utils
 import hashlib
 import logging
-from typing import List
+from datetime import datetime, timezone
+
 import defusedxml.ElementTree as ET
 import httpx
 
@@ -44,9 +44,9 @@ class RSSCrawler:
 
     async def fetch_feed_items(
         self, client: httpx.AsyncClient, feed_name: str, feed_url: str, limit: int = 3
-    ) -> List[TechRelease]:
+    ) -> list[TechRelease]:
         """Fetch latest posts from an RSS or Atom feed with size checking and safe parsing."""
-        releases: List[TechRelease] = []
+        releases: list[TechRelease] = []
         async with self.semaphore:
             try:
                 response = await client.get(feed_url, headers=self.headers)
@@ -135,7 +135,7 @@ class RSSCrawler:
 
         return releases
 
-    async def fetch_all(self, feeds: List[dict], limit_per_feed: int = 2) -> List[TechRelease]:
+    async def fetch_all(self, feeds: list[dict], limit_per_feed: int = 2) -> list[TechRelease]:
         """Fetch all feeds concurrently using a pooled HTTP client."""
         if not feeds:
             return []
@@ -147,7 +147,7 @@ class RSSCrawler:
             ]
             results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        releases: List[TechRelease] = []
+        releases: list[TechRelease] = []
         for r in results:
             if isinstance(r, list):
                 releases.extend(r)

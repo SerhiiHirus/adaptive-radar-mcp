@@ -1,8 +1,7 @@
 """Secure workspace manifest scanner for dependencies with path traversal and injection guards."""
 
-from pathlib import Path
 import re
-from typing import Dict, List, Optional, Set
+from pathlib import Path
 
 try:
     import tomllib
@@ -19,7 +18,7 @@ class ManifestScanner:
     PACKAGE_NAME_REGEX = re.compile(r"^([a-zA-Z0-9_\-\.]+)(?:[>=<~!\^].*)?$")
 
     @classmethod
-    def _validate_path_boundary(cls, target_path: Path, allowed_root: Optional[Path] = None) -> Path:
+    def _validate_path_boundary(cls, target_path: Path, allowed_root: Path | None = None) -> Path:
         """Ensure the target path is strictly contained within the allowed root directory."""
         if allowed_root is None:
             allowed_root = Path.cwd().resolve()
@@ -39,9 +38,9 @@ class ManifestScanner:
         return resolved_target
 
     @classmethod
-    def parse_requirements_txt(cls, file_path: Path) -> Dict[str, str]:
+    def parse_requirements_txt(cls, file_path: Path) -> dict[str, str]:
         """Parse package names and version specifiers from requirements.txt."""
-        dependencies: Dict[str, str] = {}
+        dependencies: dict[str, str] = {}
         if not file_path.exists() or file_path.stat().st_size > 1024 * 1024:  # 1MB limit
             return dependencies
 
@@ -62,9 +61,9 @@ class ManifestScanner:
         return dependencies
 
     @classmethod
-    def parse_pyproject_toml(cls, file_path: Path) -> Dict[str, str]:
+    def parse_pyproject_toml(cls, file_path: Path) -> dict[str, str]:
         """Parse PEP 621 or Poetry dependencies strictly without reading metadata or scripts."""
-        dependencies: Dict[str, str] = {}
+        dependencies: dict[str, str] = {}
         if not file_path.exists() or file_path.stat().st_size > 1024 * 1024:
             return dependencies
 
@@ -100,10 +99,10 @@ class ManifestScanner:
         return dependencies
 
     @classmethod
-    def parse_package_json(cls, file_path: Path) -> Dict[str, str]:
+    def parse_package_json(cls, file_path: Path) -> dict[str, str]:
         """Parse Node.js dependencies strictly ignoring scripts, description, and author."""
         import json
-        dependencies: Dict[str, str] = {}
+        dependencies: dict[str, str] = {}
         if not file_path.exists() or file_path.stat().st_size > 1024 * 1024:
             return dependencies
 
@@ -121,13 +120,13 @@ class ManifestScanner:
         return dependencies
 
     @classmethod
-    def scan_directory(cls, directory_path: str = ".", allowed_root: Optional[Path] = None) -> Dict[str, str]:
+    def scan_directory(cls, directory_path: str = ".", allowed_root: Path | None = None) -> dict[str, str]:
         """Scan a directory for known manifests and aggregate detected dependencies safely."""
         target_dir = cls._validate_path_boundary(Path(directory_path), allowed_root)
         if not target_dir.is_dir():
             raise NotADirectoryError(f"Target is not a directory: {target_dir}")
 
-        detected: Dict[str, str] = {}
+        detected: dict[str, str] = {}
 
         # 1. pyproject.toml
         pyproject_file = target_dir / "pyproject.toml"

@@ -1,10 +1,20 @@
 """Tests for MCP server functions and database operations with strict host isolation."""
 
+
 import pytest
-from pathlib import Path
+
 from adaptive_radar_mcp.memory.db import RadarDatabase
-from adaptive_radar_mcp.models import DecisionType, FeedbackRecord, SourceType, TechRelease, UserStackProfile
-from adaptive_radar_mcp.server import radar_record_feedback, radar_ingest_custom, radar_set_stack_profile
+from adaptive_radar_mcp.models import (
+    DecisionType,
+    FeedbackRecord,
+    SourceType,
+    TechRelease,
+    UserStackProfile,
+)
+from adaptive_radar_mcp.server import (
+    radar_ingest_custom,
+    radar_record_feedback,
+)
 
 
 @pytest.fixture(autouse=True)

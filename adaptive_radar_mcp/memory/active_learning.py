@@ -2,17 +2,14 @@
 
 import re
 from collections import Counter
-from typing import List, Set, Tuple
 
 from adaptive_radar_mcp.models import DecisionType, FeedbackRecord
 
-
-FROZEN_STOPWORDS: Set[str] = {
+FROZEN_STOPWORDS: set[str] = {
     "this", "that", "these", "those", "with", "without", "from", "into", "during",
     "including", "until", "against", "among", "throughout", "despite", "towards",
     "upon", "concerning", "about", "which", "there", "their", "where", "would",
-    "could", "should", "shall", "might", "because", "while", "since", "until",
-    "before", "after", "above", "below", "between", "under", "again", "further",
+    "could", "should", "shall", "might", "because", "while", "since", "before", "after", "above", "below", "between", "under", "again", "further",
     "then", "once", "here", "when", "why", "how", "all", "any", "both", "each",
     "few", "more", "most", "other", "some", "such", "only", "own", "same", "than",
     "too", "very", "just", "also", "added", "fixed", "update", "updates", "changes",
@@ -24,13 +21,13 @@ class ActiveLearningEngine:
     """Derives dynamic weights and few-shot context from developer decisions."""
 
     @classmethod
-    def _tokenize(cls, text: str) -> List[str]:
+    def _tokenize(cls, text: str) -> list[str]:
         """Extract clean words excluding stop-words and short tokens."""
         words = re.findall(r"\b[a-zA-Z][a-zA-Z0-9_\-]{3,}\b", text.lower())
         return [w for w in words if w not in FROZEN_STOPWORDS]
 
     @classmethod
-    def analyze_feedback(cls, feedback_history: List[FeedbackRecord]) -> Tuple[Counter, Counter]:
+    def analyze_feedback(cls, feedback_history: list[FeedbackRecord]) -> tuple[Counter, Counter]:
         """Count approved vs rejected patterns and tools."""
         accepted_keywords = Counter()
         rejected_keywords = Counter()
@@ -50,7 +47,7 @@ class ActiveLearningEngine:
         cls, 
         tool_or_repo: str, 
         body_text: str, 
-        feedback_history: List[FeedbackRecord]
+        feedback_history: list[FeedbackRecord]
     ) -> float:
         """Calculate score adjustment (+/-) based on past user feedback with strict word boundaries."""
         if not feedback_history:
@@ -75,7 +72,7 @@ class ActiveLearningEngine:
         return bonus - penalty
 
     @classmethod
-    def build_few_shot_context(cls, feedback_history: List[FeedbackRecord], max_items: int = 5) -> str:
+    def build_few_shot_context(cls, feedback_history: list[FeedbackRecord], max_items: int = 5) -> str:
         """Build few-shot examples of past decisions to guide LLM/agent reasoning."""
         if not feedback_history:
             return "No previous feedback recorded yet. Base evaluation on standard architecture rules."

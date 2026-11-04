@@ -1,6 +1,7 @@
 """Tests for SSRF validation and source formatting defenses."""
 
 import pytest
+
 from adaptive_radar_mcp.crawler.validator import SourceValidator
 
 

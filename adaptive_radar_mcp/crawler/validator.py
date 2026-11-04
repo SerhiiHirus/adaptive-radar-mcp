@@ -5,7 +5,6 @@ import re
 import socket
 from urllib.parse import urlparse
 
-
 GITHUB_REPO_PATTERN = re.compile(r"^[a-zA-Z0-9_\-]+/[a-zA-Z0-9_\-]+$")
 
 
@@ -46,7 +45,7 @@ class SourceValidator:
         except socket.gaierror as e:
             raise ValueError(f"DNS Resolution failed for '{hostname}': {e}")
 
-        for family, _, _, _, sockaddr in addr_info:
+        for _family, _, _, _, sockaddr in addr_info:
             ip_str = sockaddr[0]
             try:
                 ip_obj = ipaddress.ip_address(ip_str)
@@ -64,6 +63,5 @@ class SourceValidator:
             except ValueError as ip_err:
                 if "SSRF Protection" in str(ip_err):
                     raise
-                pass
 
         return clean_url

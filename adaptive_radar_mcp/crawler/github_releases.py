@@ -7,6 +7,7 @@ import os
 
 import httpx
 
+from adaptive_radar_mcp.crawler.validator import SourceValidator
 from adaptive_radar_mcp.models import SourceType, TechRelease
 from adaptive_radar_mcp.sanitizer import ContentSanitizer
 
@@ -89,7 +90,11 @@ class GitHubReleasesCrawler:
         if not repos:
             return []
 
-        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+        async with httpx.AsyncClient(
+            timeout=10.0,
+            follow_redirects=True,
+            event_hooks={"response": [SourceValidator.safe_redirect_hook]},
+        ) as client:
             tasks = [self.fetch_latest_release(client, repo) for repo in repos]
             results = await asyncio.gather(*tasks, return_exceptions=True)
 

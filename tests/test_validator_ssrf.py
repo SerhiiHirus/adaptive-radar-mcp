@@ -8,6 +8,8 @@ from adaptive_radar_mcp.crawler.validator import SourceValidator
 def test_github_repo_validation():
     assert SourceValidator.validate_github_repo("fastapi/fastapi") == "fastapi/fastapi"
     assert SourceValidator.validate_github_repo("pydantic/pydantic-ai") == "pydantic/pydantic-ai"
+    assert SourceValidator.validate_github_repo("vercel/next.js") == "vercel/next.js"
+    assert SourceValidator.validate_github_repo("socketio/socket.io") == "socketio/socket.io"
 
     with pytest.raises(ValueError) as exc:
         SourceValidator.validate_github_repo("https://github.com/evil/repo")
@@ -15,6 +17,12 @@ def test_github_repo_validation():
 
     with pytest.raises(ValueError):
         SourceValidator.validate_github_repo("../../etc/passwd")
+
+    with pytest.raises(ValueError):
+        SourceValidator.validate_github_repo("evil/..")
+
+    with pytest.raises(ValueError):
+        SourceValidator.validate_github_repo("evil/.hidden")
 
 
 def test_rss_ssrf_blocking():

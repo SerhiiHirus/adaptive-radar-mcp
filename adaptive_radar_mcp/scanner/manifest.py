@@ -15,7 +15,17 @@ except ImportError:
 class ManifestScanner:
     """Safely extracts project dependencies without executing code or parsing untrusted freeform fields."""
 
-    PACKAGE_NAME_REGEX = re.compile(r"^([a-zA-Z0-9_\-\.]+)(?:[>=<~!\^].*)?$")
+    SAFE_PACKAGE_REGEX = re.compile(r"^(?:@[a-zA-Z0-9_\-\.]+\/)?[a-zA-Z0-9][a-zA-Z0-9_\-\.]+$")
+    PACKAGE_SPEC_REGEX = re.compile(r"^([a-zA-Z0-9_\-\.]+)(?:[>=<~!\^].*)?$")
+
+    @classmethod
+    def _is_safe_package_name(cls, name: str) -> bool:
+        """Validate package name against PEP 508 / npm format, strictly preventing CRLF and markdown."""
+        if not name or len(name) > 100:
+            return False
+        if any(c in name for c in ("\r", "\n", "\t", "#", " ", "..", "\\", "<", ">", '"', "'")):
+            return False
+        return bool(cls.SAFE_PACKAGE_REGEX.match(name))
 
     @classmethod
     def _validate_path_boundary(cls, target_path: Path, allowed_root: Path | None = None) -> Path:
@@ -54,9 +64,11 @@ class ManifestScanner:
             line_str = line_str.split("#")[0].strip()
             match = re.match(r"^([a-zA-Z0-9_\-\.]+)(?:\s*([>=<~!\^]{1,2}\s*[0-9a-zA-Z\.\-]+))?", line_str)
             if match:
-                pkg_name = match.group(1).lower().replace("_", "-")
-                version_spec = match.group(2).replace(" ", "") if match.group(2) else "any"
-                dependencies[pkg_name] = version_spec
+                raw_name = match.group(1)
+                if cls._is_safe_package_name(raw_name):
+                    pkg_name = raw_name.lower().replace("_", "-")
+                    version_spec = match.group(2).replace(" ", "") if match.group(2) else "any"
+                    dependencies[pkg_name] = version_spec
 
         return dependencies
 
@@ -73,7 +85,9 @@ class ManifestScanner:
             for line in content.splitlines():
                 match = re.match(r'^\s*["\']([a-zA-Z0-9_\-\.]+)(?:[>=<~!\^][^"\']*)?["\']', line)
                 if match:
-                    dependencies[match.group(1).lower().replace("_", "-")] = "declared"
+                    raw_name = match.group(1)
+                    if cls._is_safe_package_name(raw_name):
+                        dependencies[raw_name.lower().replace("_", "-")] = "declared"
             return dependencies
 
         try:
@@ -83,15 +97,17 @@ class ManifestScanner:
             if isinstance(project_deps, list):
                 for dep in project_deps:
                     if isinstance(dep, str):
-                        match = cls.PACKAGE_NAME_REGEX.match(dep.strip())
+                        match = cls.PACKAGE_SPEC_REGEX.match(dep.strip())
                         if match:
-                            dependencies[match.group(1).lower().replace("_", "-")] = "declared"
+                            raw_name = match.group(1)
+                            if cls._is_safe_package_name(raw_name):
+                                dependencies[raw_name.lower().replace("_", "-")] = "declared"
 
             # 2. Poetry dependencies: [tool.poetry.dependencies]
             poetry_deps = data.get("tool", {}).get("poetry", {}).get("dependencies", {})
             if isinstance(poetry_deps, dict):
                 for pkg, ver in poetry_deps.items():
-                    if pkg.lower() != "python":
+                    if pkg.lower() != "python" and cls._is_safe_package_name(pkg):
                         dependencies[pkg.lower().replace("_", "-")] = str(ver) if isinstance(ver, str) else "declared"
         except Exception:
             pass
@@ -99,8 +115,89 @@ class ManifestScanner:
         return dependencies
 
     @classmethod
+    def parse_uv_lock(cls, file_path: Path) -> dict[str, str]:
+        """Parse exact pinned versions from uv.lock."""
+        dependencies: dict[str, str] = {}
+        if not file_path.exists() or file_path.stat().st_size > 2 * 1024 * 1024:
+            return dependencies
+
+        if tomllib is None:
+            return dependencies
+
+        try:
+            data = tomllib.loads(file_path.read_text(encoding="utf-8", errors="ignore"))
+            packages = data.get("package", [])
+            if isinstance(packages, list):
+                for pkg in packages:
+                    if isinstance(pkg, dict):
+                        name = pkg.get("name")
+                        ver = pkg.get("version")
+                        if isinstance(name, str) and isinstance(ver, str) and cls._is_safe_package_name(name):
+                            dependencies[name.lower().replace("_", "-")] = ver.strip()
+        except Exception:
+            pass
+
+        return dependencies
+
+    @classmethod
+    def parse_poetry_lock(cls, file_path: Path) -> dict[str, str]:
+        """Parse exact pinned versions from poetry.lock."""
+        dependencies: dict[str, str] = {}
+        if not file_path.exists() or file_path.stat().st_size > 2 * 1024 * 1024:
+            return dependencies
+
+        if tomllib is None:
+            return dependencies
+
+        try:
+            data = tomllib.loads(file_path.read_text(encoding="utf-8", errors="ignore"))
+            packages = data.get("package", [])
+            if isinstance(packages, list):
+                for pkg in packages:
+                    if isinstance(pkg, dict):
+                        name = pkg.get("name")
+                        ver = pkg.get("version")
+                        if isinstance(name, str) and isinstance(ver, str) and cls._is_safe_package_name(name):
+                            dependencies[name.lower().replace("_", "-")] = ver.strip()
+        except Exception:
+            pass
+
+        return dependencies
+
+    @classmethod
+    def parse_package_lock_json(cls, file_path: Path) -> dict[str, str]:
+        """Parse exact pinned versions from package-lock.json."""
+        import json
+        dependencies: dict[str, str] = {}
+        if not file_path.exists() or file_path.stat().st_size > 2 * 1024 * 1024:
+            return dependencies
+
+        try:
+            data = json.loads(file_path.read_text(encoding="utf-8", errors="ignore"))
+            packages = data.get("packages", {})
+            if isinstance(packages, dict):
+                for path, info in packages.items():
+                    if isinstance(info, dict) and "version" in info:
+                        if path.startswith("node_modules/"):
+                            pkg_name = path[len("node_modules/"):]
+                            if cls._is_safe_package_name(pkg_name):
+                                dependencies[pkg_name.lower()] = str(info["version"]).strip()
+
+            if not dependencies:
+                deps = data.get("dependencies", {})
+                if isinstance(deps, dict):
+                    for pkg_name, info in deps.items():
+                        if isinstance(info, dict) and "version" in info:
+                            if cls._is_safe_package_name(pkg_name):
+                                dependencies[pkg_name.lower()] = str(info["version"]).strip()
+        except Exception:
+            pass
+
+        return dependencies
+
+    @classmethod
     def parse_package_json(cls, file_path: Path) -> dict[str, str]:
-        """Parse Node.js dependencies strictly ignoring scripts, description, and author."""
+        """Parse Node.js dependencies strictly with PEP 508 / npm name validation."""
         import json
         dependencies: dict[str, str] = {}
         if not file_path.exists() or file_path.stat().st_size > 1024 * 1024:
@@ -113,7 +210,9 @@ class ManifestScanner:
                 if isinstance(deps, dict):
                     for pkg, ver in deps.items():
                         if isinstance(pkg, str) and isinstance(ver, str):
-                            dependencies[pkg.lower()] = ver
+                            clean_pkg = pkg.strip()
+                            if cls._is_safe_package_name(clean_pkg):
+                                dependencies[clean_pkg.lower()] = ver.strip()[:50]
         except Exception:
             pass
 
@@ -121,26 +220,42 @@ class ManifestScanner:
 
     @classmethod
     def scan_directory(cls, directory_path: str = ".", allowed_root: Path | None = None) -> dict[str, str]:
-        """Scan a directory for known manifests and aggregate detected dependencies safely."""
+        """Scan a directory for manifests and lockfiles, prioritizing exact pinned versions."""
         target_dir = cls._validate_path_boundary(Path(directory_path), allowed_root)
         if not target_dir.is_dir():
             raise NotADirectoryError(f"Target is not a directory: {target_dir}")
 
         detected: dict[str, str] = {}
 
-        # 1. pyproject.toml
+        # 1. Exact lockfiles first
+        uv_lock = target_dir / "uv.lock"
+        if uv_lock.is_file():
+            detected.update(cls.parse_uv_lock(uv_lock))
+
+        poetry_lock = target_dir / "poetry.lock"
+        if poetry_lock.is_file():
+            for k, v in cls.parse_poetry_lock(poetry_lock).items():
+                detected.setdefault(k, v)
+
+        pkg_lock = target_dir / "package-lock.json"
+        if pkg_lock.is_file():
+            for k, v in cls.parse_package_lock_json(pkg_lock).items():
+                detected.setdefault(k, v)
+
+        # 2. Manifest declarations (fallback / complement)
         pyproject_file = target_dir / "pyproject.toml"
         if pyproject_file.is_file():
-            detected.update(cls.parse_pyproject_toml(pyproject_file))
+            for k, v in cls.parse_pyproject_toml(pyproject_file).items():
+                detected.setdefault(k, v)
 
-        # 2. requirements.txt
         req_file = target_dir / "requirements.txt"
         if req_file.is_file():
-            detected.update(cls.parse_requirements_txt(req_file))
+            for k, v in cls.parse_requirements_txt(req_file).items():
+                detected.setdefault(k, v)
 
-        # 3. package.json
         package_json_file = target_dir / "package.json"
         if package_json_file.is_file():
-            detected.update(cls.parse_package_json(package_json_file))
+            for k, v in cls.parse_package_json(package_json_file).items():
+                detected.setdefault(k, v)
 
         return detected

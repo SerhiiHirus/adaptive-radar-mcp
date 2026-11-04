@@ -50,14 +50,18 @@ class ContentSanitizer:
 
     @classmethod
     def sanitize_url(cls, raw_url: str) -> str:
-        """Validate and allow only safe http/https URLs."""
+        """Validate and allow only safe http/https URLs without whitespace or CRLF."""
         if not raw_url:
             return ""
 
         url = cls._normalize_unicode(raw_url).strip()
+        # Block CRLF or embedded whitespace in URL to prevent HTTP splitting or spoofing
+        if any(c in url for c in ("\r", "\n", "\t", " ")):
+            return ""
+
         try:
             parsed = urlparse(url)
-            if parsed.scheme.lower() in ("https", "http"):
+            if parsed.scheme.lower() in ("https", "http") and parsed.netloc:
                 return url
         except Exception:
             pass

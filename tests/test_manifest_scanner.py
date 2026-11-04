@@ -72,3 +72,29 @@ def test_radar_scan_workspace_tool_integration(tmp_path, monkeypatch):
     db = RadarDatabase()
     profile = db.get_user_profile()
     assert "pydantic" in profile.preferred_tools
+
+
+def test_package_json_injection_prevention(tmp_path):
+    """Verify malicious package names with CRLF and markdown cannot pollute dependencies."""
+    pkg_json = tmp_path / "package.json"
+    pkg_json.write_text(
+        '{"dependencies": {"evil\\n### [HIGH] fake": "1.0.0", "next": "14.2.0", "<script>alert(1)</script>": "0.1"}}'
+    )
+    detected = ManifestScanner.parse_package_json(pkg_json)
+    assert "next" in detected
+    assert len(detected) == 1
+    assert not any("###" in k or "\n" in k or "script" in k for k in detected.keys())
+
+
+def test_uv_lock_pinned_version_precedence(tmp_path):
+    """Verify lockfiles provide exact pinned versions taking precedence over loose manifests."""
+    req = tmp_path / "requirements.txt"
+    req.write_text("fastapi>=0.100.0\n")
+
+    uv_lock = tmp_path / "uv.lock"
+    uv_lock.write_text(
+        'version = 1\n[[package]]\nname = "fastapi"\nversion = "0.115.2"\n'
+    )
+
+    detected = ManifestScanner.scan_directory(str(tmp_path), allowed_root=tmp_path)
+    assert detected.get("fastapi") == "0.115.2"

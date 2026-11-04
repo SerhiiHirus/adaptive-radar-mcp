@@ -8,6 +8,7 @@ import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 try:
     from mcp.server.fastmcp import FastMCP
@@ -17,6 +18,7 @@ except (ImportError, ModuleNotFoundError):
 from adaptive_radar_mcp.crawler.github_releases import GitHubReleasesCrawler
 from adaptive_radar_mcp.crawler.rss_crawler import RSSCrawler
 from adaptive_radar_mcp.evaluator.scoring import ReleaseEvaluator
+from adaptive_radar_mcp.evaluator.semver_analyzer import SemVerAnalyzer
 from adaptive_radar_mcp.memory.db import RadarDatabase
 from adaptive_radar_mcp.models import (
     DecisionType,
@@ -27,6 +29,8 @@ from adaptive_radar_mcp.models import (
 )
 from adaptive_radar_mcp.sanitizer import ContentSanitizer
 from adaptive_radar_mcp.scanner.manifest import ManifestScanner
+from adaptive_radar_mcp.scanner.osv_checker import OSVChecker
+from adaptive_radar_mcp.scanner.pypi_resolver import PyPIResolver
 from adaptive_radar_mcp.sources import SourcesManager
 
 logger = logging.getLogger("adaptive-radar")
@@ -41,6 +45,26 @@ def get_db() -> RadarDatabase:
 def get_sources_manager() -> SourcesManager:
     """Return dynamic sources manager."""
     return SourcesManager()
+
+
+_gh_crawler: GitHubReleasesCrawler | None = None
+_rss_crawler: RSSCrawler | None = None
+
+
+def get_gh_crawler() -> GitHubReleasesCrawler:
+    """Return persistent singleton GitHub crawler instance preserving ETag cache across calls."""
+    global _gh_crawler
+    if _gh_crawler is None:
+        _gh_crawler = GitHubReleasesCrawler()
+    return _gh_crawler
+
+
+def get_rss_crawler() -> RSSCrawler:
+    """Return persistent singleton RSS crawler instance."""
+    global _rss_crawler
+    if _rss_crawler is None:
+        _rss_crawler = RSSCrawler()
+    return _rss_crawler
 
 
 # ============================================================================
@@ -92,11 +116,12 @@ def radar_upgrade_audit_prompt() -> str:
     return (
         "You are performing an architectural dependency audit using Adaptive Tech Radar.\n\n"
         "Instructions:\n"
-        "1. First, call `radar_scan_workspace(directory='.')` to inspect local manifests (pyproject.toml, requirements.txt, package.json).\n"
-        "2. Next, call `radar_check_updates()` to fetch recent verified releases matching your detected libraries.\n"
-        "3. For any release marked [HIGH] or [IMPLEMENT], call `radar_prepare_context7_verification(release_id)`.\n"
-        "4. Query Context7 MCP with the prepared parameters to verify the live API signatures.\n"
-        "5. Formulate a concise upgrade recommendation showing: Target Library, Current Version, New Version, Token ROI benefit, and verified code snippet."
+        "1. First, call `radar_scan_workspace(directory='.')` and `radar_audit_security(directory='.')` to inspect local manifests (uv.lock, pyproject.toml, package.json) and flag any CVE vulnerabilities.\n"
+        "2. Call `radar_discover_sources_from_workspace(add_to_sources=True)` to map project dependencies to official GitHub repos via PyPI.\n"
+        "3. Next, call `radar_check_updates()` to fetch recent verified releases matching your detected libraries.\n"
+        "4. For any release marked [HIGH] or [IMPLEMENT], call `radar_prepare_context7_verification(release_id)`.\n"
+        "5. Query Context7 MCP with the prepared parameters to verify live API signatures or migration guides.\n"
+        "6. Formulate a concise upgrade recommendation showing: Target Library, Current Version, New Version, Migration Risk, Token ROI benefit, and verified code snippet."
     )
 
 
@@ -155,8 +180,8 @@ async def radar_check_updates(fetch_remote: bool = True, limit: int = 5) -> str:
         repos = config.get("github_repositories", [])
         feeds = config.get("rss_feeds", [])
 
-        gh_task = GitHubReleasesCrawler().fetch_all(repos) if repos else asyncio.sleep(0, result=[])
-        rss_task = RSSCrawler().fetch_all(feeds, limit_per_feed=2) if feeds else asyncio.sleep(0, result=[])
+        gh_task = get_gh_crawler().fetch_all(repos) if repos else asyncio.sleep(0, result=[])
+        rss_task = get_rss_crawler().fetch_all(feeds, limit_per_feed=2) if feeds else asyncio.sleep(0, result=[])
 
         gh_releases, feed_items = await asyncio.gather(gh_task, rss_task)
 
@@ -232,10 +257,23 @@ def radar_prepare_context7_verification(release_id: str) -> dict:
     project = row["project_or_repo"].split("/")[-1].lower()
     version = row["version"] or ""
     title = row["title"]
+    body_text = row.get("body") or ""
+
+    semver_info = SemVerAnalyzer.analyze_version_diff(
+        current_version=None, new_version=version, changelog_text=body_text
+    )
+
+    if semver_info.get("requires_migration_guide"):
+        doc_query = f"{project} migration guide {version} breaking changes".strip()
+    else:
+        doc_query = f"{version} new features API syntax".strip()
+
+    risk_warn = " [MIGRATION RISK: HIGH]" if semver_info.get("risk_level") == "HIGH" else ""
 
     return {
         "status": "READY_FOR_CONTEXT7_INSPECTION",
         "library_id": project,
+        "semver_risk": semver_info.get("risk_level", "LOW"),
         "suggested_actions": [
             {
                 "tool": "resolve-library-id",
@@ -245,12 +283,93 @@ def radar_prepare_context7_verification(release_id: str) -> dict:
                 "tool": "query-docs",
                 "arguments": {
                     "library_id": project,
-                    "query": f"{version} new features API syntax".strip()
+                    "query": doc_query
                 }
             }
         ],
-        "verification_objective": f"Verify official API interface and stability for {project} {version} ({title}) before generating code."
+        "verification_objective": f"Verify official API interface and stability for {project} {version} ({title}){risk_warn} before generating code."
     }
+
+
+@mcp.tool()
+async def radar_audit_security(directory: str = ".") -> dict:
+    """Audit project dependencies against OSV.dev for known security advisories (CVEs).
+    
+    Args:
+        directory: Target workspace directory to scan.
+    Returns:
+        Structured audit of detected security vulnerabilities and CVE advisory links.
+    """
+    try:
+        allowed_root = Path(os.environ.get("RADAR_WORKSPACE_ROOT", Path.cwd()))
+        detected = ManifestScanner.scan_directory(directory, allowed_root=allowed_root)
+        if not detected:
+            return {"status": "SUCCESS", "message": "No dependencies detected in directory.", "vulnerabilities": []}
+
+        flagged = await OSVChecker.check_dependencies(detected)
+        return {
+            "status": "SUCCESS",
+            "dependencies_scanned": len(detected),
+            "vulnerabilities_found": len(flagged),
+            "advisories": flagged,
+            "action_required": (
+                "CRITICAL: Upgrade vulnerable packages immediately." if flagged else "All packages clear."
+            ),
+        }
+    except Exception as e:
+        return {"status": "ERROR", "message": str(e)}
+
+
+@mcp.tool()
+async def radar_discover_sources_from_workspace(directory: str = ".", add_to_sources: bool = False) -> dict:
+    """Discover official GitHub repositories for workspace dependencies via PyPI JSON API.
+    
+    [State-Mutating if add_to_sources=True]: Can add discovered repositories to tracked radar sources.
+    
+    Args:
+        directory: Workspace directory to scan for dependencies.
+        add_to_sources: If True, automatically adds discovered GitHub repositories to radar monitoring.
+    Returns:
+        Dictionary mapping dependencies to discovered GitHub repositories and tracking status.
+    """
+    try:
+        allowed_root = Path(os.environ.get("RADAR_WORKSPACE_ROOT", Path.cwd()))
+        detected = ManifestScanner.scan_directory(directory, allowed_root=allowed_root)
+        if not detected:
+            return {"status": "SUCCESS", "message": "No packages found to resolve.", "discovered": {}}
+
+        resolved = await PyPIResolver.resolve_packages(list(detected.keys()))
+        discovered: dict[str, Any] = {}
+        added: list[str] = []
+        mgr = get_sources_manager()
+
+        for pkg_name, info in resolved.items():
+            repo = info.get("github_repo")
+            if repo:
+                discovered[pkg_name] = {
+                    "installed_version": detected.get(pkg_name),
+                    "latest_pypi_version": info.get("latest_version"),
+                    "github_repo": repo,
+                }
+                if add_to_sources:
+                    try:
+                        mgr.add_github_repo(repo)
+                        added.append(repo)
+                    except Exception:
+                        pass
+
+        return {
+            "status": "SUCCESS",
+            "scanned_packages": len(detected),
+            "discovered_repositories_count": len(discovered),
+            "discovered": discovered,
+            "added_to_tracked_sources": added if add_to_sources else [],
+            "recommendation": (
+                "Tracked sources updated." if added else "Run with add_to_sources=True to monitor these repos."
+            ),
+        }
+    except Exception as e:
+        return {"status": "ERROR", "message": str(e)}
 
 
 @mcp.tool()

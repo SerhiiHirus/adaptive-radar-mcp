@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 import defusedxml.ElementTree as ET
 import httpx
 
+from adaptive_radar_mcp.crawler.validator import SourceValidator
 from adaptive_radar_mcp.models import SourceType, TechRelease
 from adaptive_radar_mcp.sanitizer import ContentSanitizer
 
@@ -49,17 +50,35 @@ class RSSCrawler:
         releases: list[TechRelease] = []
         async with self.semaphore:
             try:
-                response = await client.get(feed_url, headers=self.headers)
-                if response.status_code != 200:
-                    return releases
+                # Use streaming to prevent OOM / unbounded payload buffering
+                async with client.stream("GET", feed_url, headers=self.headers) as response:
+                    if response.status_code != 200:
+                        return releases
 
-                # Enforce response body size limit
-                if len(response.content) > MAX_FEED_BYTES:
-                    logger.warning("Feed %s exceeded maximum allowed size (%d bytes)", feed_name, MAX_FEED_BYTES)
-                    return releases
+                    content_length = response.headers.get("Content-Length")
+                    if content_length and int(content_length) > MAX_FEED_BYTES:
+                        logger.warning(
+                            "Feed %s exceeded size limit header (%s bytes)", feed_name, content_length
+                        )
+                        return releases
+
+                    chunks = []
+                    total_size = 0
+                    async for chunk in response.aiter_bytes():
+                        total_size += len(chunk)
+                        if total_size > MAX_FEED_BYTES:
+                            logger.warning(
+                                "Feed %s exceeded maximum allowed size (%d bytes) during streaming",
+                                feed_name,
+                                MAX_FEED_BYTES,
+                            )
+                            return releases
+                        chunks.append(chunk)
+
+                    feed_bytes = b"".join(chunks)
 
                 # Parse using defusedxml (protects against XXE, Billion Laughs, quadratic blowup in all encodings)
-                root = ET.fromstring(response.content)
+                root = ET.fromstring(feed_bytes)
 
                 # RSS 2.0 (channel -> item)
                 channel = root.find("channel")
@@ -140,7 +159,11 @@ class RSSCrawler:
         if not feeds:
             return []
 
-        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+        async with httpx.AsyncClient(
+            timeout=10.0,
+            follow_redirects=True,
+            event_hooks={"response": [SourceValidator.safe_redirect_hook]},
+        ) as client:
             tasks = [
                 self.fetch_feed_items(client, feed["name"], feed["url"], limit=limit_per_feed)
                 for feed in feeds

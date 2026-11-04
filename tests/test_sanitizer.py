@@ -44,10 +44,12 @@ def test_sanitize_title_spoofing():
 
 
 def test_sanitize_url_protocols():
-    """Verify that dangerous schemes (javascript:, data:) are rejected (S3 fix)."""
+    """Verify that dangerous schemes (javascript:, data:) and CRLF injections are rejected."""
     assert ContentSanitizer.sanitize_url("https://github.com/test/repo") == "https://github.com/test/repo"
     assert ContentSanitizer.sanitize_url("javascript:alert(1)") == ""
     assert ContentSanitizer.sanitize_url("data:text/html,<script>alert(1)</script>") == ""
+    assert ContentSanitizer.sanitize_url("https://github.com/test\n/repo") == ""
+    assert ContentSanitizer.sanitize_url("https://github.com/test\r/repo") == ""
 
 
 def test_sanitize_truncation():

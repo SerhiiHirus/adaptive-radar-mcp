@@ -3,6 +3,8 @@
 import re
 
 from adaptive_radar_mcp.evaluator.safety import SafetyChecker
+from adaptive_radar_mcp.evaluator.semver_analyzer import SemVerAnalyzer
+from adaptive_radar_mcp.evaluator.token_roi_registry import TokenROIRegistry
 from adaptive_radar_mcp.memory.active_learning import ActiveLearningEngine
 from adaptive_radar_mcp.models import (
     EvaluationResult,
@@ -74,13 +76,20 @@ class ReleaseEvaluator:
         # 3. Base score starts conservative (2.5)
         current_score = 2.5
 
-        # 4. Token ROI calculation
+        # 4. Token ROI calculation with verified vendor benchmarks
         token_bonus = 0.0
-        for signal, weight, note in cls.TOKEN_SAVING_SIGNALS:
-            pattern = r"\b" + re.escape(signal) + r"\b"
-            if re.search(pattern, text_full):
-                token_bonus += weight
-                token_notes.append(note)
+        benchmarks = TokenROIRegistry.match_benchmarks(text_full)
+        for b in benchmarks:
+            token_bonus += 2.0
+            token_notes.append(f"{b.feature_name}: {b.measured_impact} (Ref: {b.vendor_doc_url})")
+
+        # Fallback to general token-saving signals if no specific vendor benchmark matched
+        if not benchmarks:
+            for signal, weight, note in cls.TOKEN_SAVING_SIGNALS:
+                pattern = r"\b" + re.escape(signal) + r"\b"
+                if re.search(pattern, text_full):
+                    token_bonus += weight
+                    token_notes.append(note)
 
         current_score += min(token_bonus, 3.5)
         token_roi_summary = "; ".join(token_notes) if token_notes else "Neutral token impact"
@@ -117,13 +126,22 @@ class ReleaseEvaluator:
         else:
             action = "IGNORE"
 
-        # Formulate Context7 query
+        # Formulate Context7 query with SemVer & migration guidance
         context7_query = None
         repo_simple = release.project_or_repo.split("/")[-1]
+        semver_info = SemVerAnalyzer.analyze_version_diff(
+            current_version=None, new_version=release.version, changelog_text=text_full
+        )
+
         if final_score >= 5.5:
-            context7_query = f"{repo_simple} {release.version or ''}".strip()
+            if semver_info.get("requires_migration_guide"):
+                context7_query = f"{repo_simple} migration guide {release.version or ''}".strip()
+            else:
+                context7_query = f"{repo_simple} {release.version or ''}".strip()
 
         rationale = f"Evaluated against profile ({len(profile.keywords)} keywords). "
+        if semver_info.get("risk_level") == "HIGH":
+            rationale += "[Migration Risk: HIGH] "
         if token_notes:
             rationale += "Identified cost-saving mechanisms. "
         if feedback_history:

@@ -5,7 +5,7 @@ import re
 import socket
 from urllib.parse import urlparse
 
-GITHUB_REPO_PATTERN = re.compile(r"^[a-zA-Z0-9_\-]+/[a-zA-Z0-9_\-]+$")
+GITHUB_REPO_PATTERN = re.compile(r"^[a-zA-Z0-9_\.\-]+/[a-zA-Z0-9_\.\-]+$")
 
 
 class SourceValidator:
@@ -13,13 +13,28 @@ class SourceValidator:
 
     @classmethod
     def validate_github_repo(cls, repo_identifier: str) -> str:
-        """Ensure repo identifier matches strictly 'owner/repo' without URL schemes or traversal."""
+        """Ensure repo identifier matches strictly 'owner/repo' without traversal or double-dots."""
         clean = repo_identifier.strip().lstrip("@")
-        if not GITHUB_REPO_PATTERN.match(clean):
+        if (
+            ".." in clean
+            or not GITHUB_REPO_PATTERN.match(clean)
+            or clean.startswith((".", "-", "_"))
+            or "/." in clean
+            or clean.endswith((".", "-", "_"))
+        ):
             raise ValueError(
-                f"Invalid GitHub repository identifier '{repo_identifier}'. Expected format: 'owner/repo' (e.g. 'pydantic/pydantic-ai')."
+                f"Invalid GitHub repository identifier '{repo_identifier}'. Expected format: 'owner/repo' (e.g. 'vercel/next.js')."
             )
         return clean
+
+    @classmethod
+    async def safe_redirect_hook(cls, response) -> None:
+        """HTTPX response hook verifying that 3xx redirects do not point to internal/SSRF targets."""
+        if response.is_redirect:
+            location = response.headers.get("location")
+            if location:
+                redirect_url = str(response.url.join(location))
+                cls.validate_rss_url(redirect_url)
 
     @classmethod
     def validate_rss_url(cls, url: str) -> str:

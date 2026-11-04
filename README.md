@@ -64,10 +64,12 @@ flowchart TD
 
 | Tool | Parameters | Description |
 | :--- | :--- | :--- |
-| `radar_scan_workspace` | `directory: str = "."` | Safely parses `pyproject.toml`, `requirements.txt`, or `package.json` within project boundaries to detect active dependencies (Strictly Read-Only). |
-| `radar_check_updates` | `fetch_remote: bool = True`, `limit: int = 5` | Fetches, sanitizes, and evaluates releases against developer stack and Token Cost metrics. |
-| `radar_prepare_context7_verification` | `release_id: str` | Generates a structured Context7 payload (`library_id`, query) to verify official docs before implementation. |
-| `radar_add_source` | `source_type: str`, `target: str`, `name: str` | Adds a GitHub repo (`owner/repo`) or HTTPS RSS feed with strict SSRF validation (private/loopback IPs blocked). |
+| `radar_scan_workspace` | `directory: str = "."`, `apply_to_profile: bool = False` | Safely parses lockfiles (`uv.lock`, `poetry.lock`, `package-lock.json`) and manifests (`pyproject.toml`, `requirements.txt`, `package.json`) to detect active dependencies. Validates package names against PEP 508 / npm. |
+| `radar_audit_security` | `directory: str = "."` | Audits installed dependencies against OSV.dev for known security advisories (CVE/GHSA). |
+| `radar_discover_sources_from_workspace` | `directory: str = "."`, `add_to_sources: bool = False` | Maps project dependencies to official GitHub repositories via PyPI JSON API and optionally starts tracking them. |
+| `radar_check_updates` | `fetch_remote: bool = True`, `limit: int = 5` | Fetches, sanitizes, and scores releases against developer stack, Token ROI vendor benchmarks, and SemVer migration risks. |
+| `radar_prepare_context7_verification` | `release_id: str` | Generates a structured Context7 payload (`library_id`, query) targeting documentation or migration guides before code changes. |
+| `radar_add_source` | `source_type: str`, `target: str`, `name: str` | Adds a GitHub repo (`owner/repo`, supporting dots like `vercel/next.js`) or HTTPS RSS feed with strict SSRF validation. |
 | `radar_list_sources` | _None_ | Lists all active upstream tracking sources and configurations. |
 | `radar_remove_source` | `identifier: str` | Removes a tracked source by repo name or feed URL. |
 | `radar_record_feedback` | `release_id: str`, `decision: str`, `reason: str` | Records user decisions (`ACCEPTED`, `REJECTED`, `OBSERVED`) to adjust heuristic bias weights. |
@@ -95,9 +97,9 @@ Clients can read radar state directly without incurring tool-call latency or sid
 ## Security Defenses
 
 1. **Prompt Injection Mitigation:** All incoming titles and bodies are normalized using Unicode NFKC. Formatting characters (`Cf` category) are stripped prior to applying directive filters (`ignore instructions`, `system prompt:`, `exfiltrate`).
-2. **SSRF Defense:** Adding RSS feeds resolves the target hostname and blocks loopback (`127.0.0.0/8`), private networks (RFC 1918), and link-local cloud metadata endpoints (`169.254.169.254`). GitHub additions require exact `owner/repo` patterns.
-3. **Workspace Path Sandbox:** `radar_scan_workspace` strictly confines file reads to the workspace root, rejecting path traversal attempts (`../`) and parsing only dependency fields.
-4. **Hardened XML Parser:** RSS/Atom feeds are parsed using `defusedxml` to mitigate Billion Laughs, quadratic blowup, and DTD entity attacks in any encoding.
+2. **SSRF & Redirect Defense:** Adding RSS feeds resolves the target hostname and blocks loopback (`127.0.0.0/8`), private networks (RFC 1918), and link-local cloud metadata endpoints (`169.254.169.254`). HTTP client hooks inspect 3xx redirects to prevent redirect-based SSRF. GitHub additions allow dot-notation (`vercel/next.js`) while blocking traversal.
+3. **Workspace Path Sandbox & Manifest Sanitization:** Manifest scanners strictly confine file reads to the workspace root, rejecting path traversal attempts (`../`). Package names from `package.json` and lockfiles are validated against strict PEP 508 / npm formats, stripping CRLF and markdown injections.
+4. **Hardened XML Parser & Streaming Limit:** RSS/Atom feeds are parsed using `defusedxml` to mitigate Billion Laughs, quadratic blowup, and DTD entity attacks in any encoding. Network payload is read via streaming with a strict 2MB cut-off to prevent OOM memory exhaustion.
 5. **Local Concurrency (SQLite WAL):** SQLite connections enforce `PRAGMA journal_mode = WAL` and `busy_timeout = 5000` to prevent concurrency deadlocks across multiple IDE sessions.
 
 ---

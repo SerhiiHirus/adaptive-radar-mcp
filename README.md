@@ -5,9 +5,9 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Code Style: PEP8](https://img.shields.io/badge/code%20style-pep8-black.svg)](https://peps.python.org/pep-0008/)
 
-An autonomous Model Context Protocol (MCP) server that monitors upstream releases across the AI and LLMOps ecosystem, scans local workspace dependencies (`pyproject.toml`, `requirements.txt`), evaluates cost-reduction signals, and mitigates untrusted prompt injections.
+An adaptive Model Context Protocol (MCP) server that monitors upstream releases across the AI/LLMOps ecosystem, scans local workspace dependencies and lockfiles (`uv.lock`, `poetry.lock`, `pyproject.toml`), evaluates verified Token ROI signals, and classifies SemVer breaking risks against installed packages.
 
-Integrates seamlessly with [Context7 MCP](https://github.com/modelcontextprotocol) for zero-hallucination API schema verification.
+Prepares targeted queries for [Context7 MCP](https://github.com/modelcontextprotocol) to inspect official documentation and migration guides before code changes.
 
 ---
 
@@ -64,6 +64,7 @@ flowchart TD
 
 | Tool | Parameters | Description |
 | :--- | :--- | :--- |
+| `radar_quick_audit` | `directory: str = "."` | **One-Click Diagnostic:** Scans workspace lockfiles, updates installed package versions, audits OSV CVEs, and reports top upgrade opportunities in a 5-line summary. |
 | `radar_scan_workspace` | `directory: str = "."`, `apply_to_profile: bool = False` | Safely parses lockfiles (`uv.lock`, `poetry.lock`, `package-lock.json`) and manifests (`pyproject.toml`, `requirements.txt`, `package.json`) to detect active dependencies. Validates package names against PEP 508 / npm. |
 | `radar_audit_security` | `directory: str = "."` | Audits installed dependencies against OSV.dev for known security advisories (CVE/GHSA). |
 | `radar_discover_sources_from_workspace` | `directory: str = "."`, `add_to_sources: bool = False` | Maps project dependencies to official GitHub repositories via PyPI JSON API and optionally starts tracking them. |
@@ -96,8 +97,8 @@ Clients can read radar state directly without incurring tool-call latency or sid
 
 ## Security Defenses
 
-1. **Prompt Injection Mitigation:** All incoming titles and bodies are normalized using Unicode NFKC. Formatting characters (`Cf` category) are stripped prior to applying directive filters (`ignore instructions`, `system prompt:`, `exfiltrate`).
-2. **SSRF & Redirect Defense:** Adding RSS feeds resolves the target hostname and blocks loopback (`127.0.0.0/8`), private networks (RFC 1918), and link-local cloud metadata endpoints (`169.254.169.254`). HTTP client hooks inspect 3xx redirects to prevent redirect-based SSRF. GitHub additions allow dot-notation (`vercel/next.js`) while blocking traversal.
+1. **Data Minimization & Heuristic Sanitization:** Mitigates untrusted prompt injections by strictly separating metadata from raw text. The auto-loaded `radar://releases/recent` resource excludes raw bodies entirely. Ingested text is normalized via Unicode NFKC, truncated to 600 characters, stripped of CRLF and markdown heading spoofing (`#`), and filtered for common injection directives.
+2. **SSRF & Redirect Defense:** Enforces HTTPS for feeds and resolves DNS to block loopback (`127.0.0.0/8`), private subnets (RFC 1918), and link-local cloud metadata (`169.254.169.254`). HTTP client hooks inspect 3xx redirects via non-blocking async DNS to prevent redirect-based SSRF. GitHub additions allow dot-notation (`vercel/next.js`) while blocking traversal (`..`).
 3. **Workspace Path Sandbox & Manifest Sanitization:** Manifest scanners strictly confine file reads to the workspace root, rejecting path traversal attempts (`../`). Package names from `package.json` and lockfiles are validated against strict PEP 508 / npm formats, stripping CRLF and markdown injections.
 4. **Hardened XML Parser & Streaming Limit:** RSS/Atom feeds are parsed using `defusedxml` to mitigate Billion Laughs, quadratic blowup, and DTD entity attacks in any encoding. Network payload is read via streaming with a strict 2MB cut-off to prevent OOM memory exhaustion.
 5. **Local Concurrency (SQLite WAL):** SQLite connections enforce `PRAGMA journal_mode = WAL` and `busy_timeout = 5000` to prevent concurrency deadlocks across multiple IDE sessions.

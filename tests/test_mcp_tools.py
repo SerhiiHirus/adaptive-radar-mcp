@@ -116,3 +116,24 @@ def test_record_feedback_prefix_cleaning(tmp_path):
     recent = db.get_recent_feedback(1)
     assert len(recent) == 1
     assert recent[0].project_or_repo == "OpenAI Blog"
+
+
+@pytest.mark.asyncio
+async def test_radar_quick_audit_tool(tmp_path, monkeypatch):
+    """Verify one-click radar_quick_audit execution and profile package sync."""
+    monkeypatch.setenv("RADAR_STORAGE_DIR", str(tmp_path))
+    monkeypatch.setenv("RADAR_WORKSPACE_ROOT", str(tmp_path))
+    from adaptive_radar_mcp.server import radar_quick_audit
+
+    # Create dummy manifest
+    (tmp_path / "requirements.txt").write_text("fastapi>=0.115.0\npydantic>=2.9.0\n")
+
+    res = await radar_quick_audit(directory=str(tmp_path))
+    assert res["status"] == "SUCCESS"
+    assert res["packages_scanned"] == 2
+    assert "fastapi" in res["installed_packages"]
+    assert "### 🛰️ Radar Quick Audit Summary" in res["summary_markdown"]
+
+    db = RadarDatabase(tmp_path / "radar.db")
+    profile = db.get_user_profile()
+    assert "fastapi" in profile.installed_packages

@@ -128,18 +128,29 @@ class ReleaseEvaluator:
 
         # Formulate Context7 query with SemVer & migration guidance
         context7_query = None
-        repo_simple = release.project_or_repo.split("/")[-1]
+        repo_simple = release.project_or_repo.split("/")[-1].lower().replace("_", "-")
+        installed_version = profile.installed_packages.get(repo_simple)
+        if not installed_version:
+            repo_clean = repo_simple.replace("-", "").replace(".", "")
+            for pkg_name, ver in profile.installed_packages.items():
+                if pkg_name.replace("-", "").replace(".", "") == repo_clean:
+                    installed_version = ver
+                    break
+
         semver_info = SemVerAnalyzer.analyze_version_diff(
-            current_version=None, new_version=release.version, changelog_text=text_full
+            current_version=installed_version, new_version=release.version, changelog_text=text_full
         )
 
-        if final_score >= 5.5:
+        if final_score >= 5.5 or semver_info.get("requires_migration_guide"):
             if semver_info.get("requires_migration_guide"):
                 context7_query = f"{repo_simple} migration guide {release.version or ''}".strip()
             else:
                 context7_query = f"{repo_simple} {release.version or ''}".strip()
 
         rationale = f"Evaluated against profile ({len(profile.keywords)} keywords). "
+        if installed_version:
+            diff_label = semver_info.get("diff_type", "UNKNOWN")
+            rationale += f"[Installed: {installed_version} -> Target: {release.version or 'latest'} ({diff_label})] "
         if semver_info.get("risk_level") == "HIGH":
             rationale += "[Migration Risk: HIGH] "
         if token_notes:

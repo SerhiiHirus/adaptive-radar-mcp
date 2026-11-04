@@ -33,8 +33,9 @@ class SourceValidator:
         if response.is_redirect:
             location = response.headers.get("location")
             if location:
+                import asyncio
                 redirect_url = str(response.url.join(location))
-                cls.validate_rss_url(redirect_url)
+                await asyncio.to_thread(cls.validate_rss_url, redirect_url)
 
     @classmethod
     def validate_rss_url(cls, url: str) -> str:

@@ -5,50 +5,6 @@ from enum import Enum
 from pydantic import BaseModel, Field
 
 
-class UpdateCategory(str, Enum):
-    AGENTIC = "AGENTIC WORKFLOWS & FRAMEWORKS"
-    LLMOPS = "LLMOps, INFRASTRUCTURE & COST"
-    MCP_TOOLS = "TOOLS, PROTOCOLS & MCP"
-    GENERAL = "GENERAL"
-
-
-class ChangelogItem(BaseModel):
-    """Single item parsed from a changelog draft."""
-    raw_title: str
-    tool_name: str
-    version: str | None = None
-    category: UpdateCategory = UpdateCategory.GENERAL
-    summary: str
-    automation_insight: str | None = None
-    is_backlog_candidate: bool = False
-    source_url: str | None = None
-
-
-class ChangelogDraft(BaseModel):
-    """Complete changelog document."""
-    date: str
-    title: str
-    items: list[ChangelogItem] = Field(default_factory=list)
-    backlog_summary: str | None = None
-
-
-class RecommendationStatus(str, Enum):
-    RECOMMENDED = "RECOMMENDED"
-    MONITOR = "MONITOR"
-    DISCARDED = "DISCARDED"
-
-
-class RadarEvaluation(BaseModel):
-    """Legacy evaluation model for changelog text items."""
-    item: ChangelogItem
-    status: RecommendationStatus
-    target_project: str | None = None
-    token_impact: str
-    architectural_fit: str
-    context7_query: str | None = None
-    rationale: str
-
-
 class DecisionType(str, Enum):
     ACCEPTED = "ACCEPTED"    # User approved feature for backlog/implementation
     REJECTED = "REJECTED"    # User dismissed feature (out of scope, too complex, etc.)
@@ -102,5 +58,6 @@ class UserStackProfile(BaseModel):
     """Developer's preferences and active tech stack."""
     keywords: list[str] = Field(default_factory=list)
     preferred_tools: list[str] = Field(default_factory=list)
+    installed_packages: dict[str, str] = Field(default_factory=dict)
     banned_patterns: list[str] = Field(default_factory=list)
     notes: str | None = None

@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "adaptive-radar-mcp"
 version = "0.4.0"
-description = "Autonomous Tech Radar MCP server with active learning heuristics and token cost optimization detection"
+description = "Adaptive Tech Radar MCP server with preference weighting and token optimization detection"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }

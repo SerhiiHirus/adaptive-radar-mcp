@@ -148,6 +148,7 @@ def radar_scan_workspace(directory: str = ".", apply_to_profile: bool = False) -
             profile = db.get_user_profile()
             merged_tools = sorted(set(profile.preferred_tools + list(detected.keys())))[:30]
             profile.preferred_tools = merged_tools
+            profile.installed_packages.update(detected)
             db.set_user_profile(profile)
             applied = True
 
@@ -254,13 +255,22 @@ def radar_prepare_context7_verification(release_id: str) -> dict:
     if not row:
         return {"error": f"Release not found for ID: {release_id}"}
 
-    project = row["project_or_repo"].split("/")[-1].lower()
+    project = row["project_or_repo"].split("/")[-1].lower().replace("_", "-")
     version = row["version"] or ""
     title = row["title"]
     body_text = row.get("body") or ""
 
+    profile = database.get_user_profile()
+    installed_ver = profile.installed_packages.get(project)
+    if not installed_ver:
+        proj_clean = project.replace("-", "").replace(".", "")
+        for k, v in profile.installed_packages.items():
+            if k.replace("-", "").replace(".", "") == proj_clean:
+                installed_ver = v
+                break
+
     semver_info = SemVerAnalyzer.analyze_version_diff(
-        current_version=None, new_version=version, changelog_text=body_text
+        current_version=installed_ver, new_version=version, changelog_text=body_text
     )
 
     if semver_info.get("requires_migration_guide"):
@@ -268,11 +278,14 @@ def radar_prepare_context7_verification(release_id: str) -> dict:
     else:
         doc_query = f"{version} new features API syntax".strip()
 
-    risk_warn = " [MIGRATION RISK: HIGH]" if semver_info.get("risk_level") == "HIGH" else ""
+    risk_warn = f" [MIGRATION RISK: {semver_info.get('risk_level', 'LOW')}]" if semver_info.get("risk_level") in ("HIGH", "MEDIUM") else ""
 
     return {
         "status": "READY_FOR_CONTEXT7_INSPECTION",
         "library_id": project,
+        "installed_version": installed_ver or "unknown",
+        "target_version": version or "latest",
+        "semver_diff": semver_info.get("diff_type", "UNKNOWN"),
         "semver_risk": semver_info.get("risk_level", "LOW"),
         "suggested_actions": [
             {
@@ -287,8 +300,93 @@ def radar_prepare_context7_verification(release_id: str) -> dict:
                 }
             }
         ],
-        "verification_objective": f"Verify official API interface and stability for {project} {version} ({title}){risk_warn} before generating code."
+        "verification_objective": (
+            f"Verify official API interface for {project} {version} ({title}, installed: {installed_ver or 'none'}){risk_warn}. "
+            "Inspect verified Context7 documentation to produce a concise Before/After migration diff before altering code."
+        )
     }
+
+
+@mcp.tool()
+async def radar_quick_audit(directory: str = ".") -> dict:
+    """One-click comprehensive workspace audit combining manifest parsing, OSV CVE check, and top upgrade opportunities.
+    
+    Args:
+        directory: Workspace directory to audit.
+    Returns:
+        Structured audit report including detected packages, CVE advisories, and actionable recommendations.
+    """
+    try:
+        allowed_root = Path(os.environ.get("RADAR_WORKSPACE_ROOT", Path.cwd()))
+        detected = ManifestScanner.scan_directory(directory, allowed_root=allowed_root)
+        if not detected:
+            return {
+                "status": "SUCCESS",
+                "message": "No package manifests or lockfiles detected in target workspace.",
+                "summary": "Workspace is clean of tracked manifests.",
+            }
+
+        # 1. Update installed packages in profile
+        db = get_db()
+        profile = db.get_user_profile()
+        profile.installed_packages.update(detected)
+        merged_tools = sorted(set(profile.preferred_tools + list(detected.keys())))[:30]
+        profile.preferred_tools = merged_tools
+        db.set_user_profile(profile)
+
+        # 2. Check CVEs asynchronously
+        flagged_cves = await OSVChecker.check_dependencies(detected)
+
+        # 3. Check for high-ROI or Major releases matching detected dependencies
+        matching_releases = []
+        releases = db.get_unreviewed_releases(limit=30)
+        feedback_history = db.get_recent_feedback(limit=20)
+
+        for rel in releases:
+            eval_res = ReleaseEvaluator.evaluate(rel, profile, feedback_history)
+            if eval_res.score >= 5.0 or eval_res.safety_verdict == "UNSAFE":
+                matching_releases.append({
+                    "release_id": eval_res.release_id,
+                    "project": eval_res.project_or_repo,
+                    "version": eval_res.version,
+                    "score": eval_res.score,
+                    "action": eval_res.recommended_action,
+                    "token_roi": eval_res.token_roi_summary,
+                    "rationale": eval_res.rationale,
+                })
+
+        matching_releases.sort(key=lambda x: x["score"], reverse=True)
+
+        cve_summary = (
+            f"CRITICAL: {len(flagged_cves)} vulnerability advisory(ies) detected!"
+            if flagged_cves
+            else "Clean (0 known CVEs across scanned dependencies)."
+        )
+        top_opp = (
+            f"{matching_releases[0]['project']} {matching_releases[0]['version']} ({matching_releases[0]['token_roi']})"
+            if matching_releases
+            else "No high-priority upgrades pending."
+        )
+
+        summary_md = (
+            f"### 🛰️ Radar Quick Audit Summary\n"
+            f"- **Packages Scanned:** {len(detected)} detected via lockfiles/manifests.\n"
+            f"- **Security Status (OSV.dev):** {cve_summary}\n"
+            f"- **Top Upgrade Opportunity:** {top_opp}\n"
+            f"- **Action:** Use `radar_prepare_context7_verification(release_id)` for detailed API verification."
+        )
+
+        return {
+            "status": "SUCCESS",
+            "workspace_directory": directory,
+            "packages_scanned": len(detected),
+            "installed_packages": detected,
+            "vulnerabilities": flagged_cves,
+            "top_upgrade_opportunities": matching_releases[:5],
+            "summary_markdown": summary_md,
+        }
+    except Exception as e:
+        return {"status": "ERROR", "message": str(e)}
 
 
 @mcp.tool()

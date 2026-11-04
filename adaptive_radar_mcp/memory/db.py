@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
 
-from src.models import (
+from adaptive_radar_mcp.models import (
     DecisionType,
     FeedbackRecord,
     SourceType,

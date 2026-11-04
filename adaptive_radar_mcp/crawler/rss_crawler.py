@@ -6,7 +6,7 @@ import xml.etree.ElementTree as ET
 from typing import List
 import httpx
 
-from src.models import SourceType, TechRelease
+from adaptive_radar_mcp.models import SourceType, TechRelease
 
 
 class RSSCrawler:

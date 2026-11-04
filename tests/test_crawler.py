@@ -2,8 +2,8 @@
 
 import pytest
 import httpx
-from src.crawler.rss_crawler import RSSCrawler
-from src.crawler.github_releases import GitHubReleasesCrawler
+from adaptive_radar_mcp.crawler.rss_crawler import RSSCrawler
+from adaptive_radar_mcp.crawler.github_releases import GitHubReleasesCrawler
 
 
 @pytest.mark.asyncio

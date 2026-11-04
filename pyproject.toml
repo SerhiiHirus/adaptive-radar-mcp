@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "adaptive-radar-mcp"
-version = "0.1.0"
-description = "Autonomous Tech Radar MCP server with active learning and token ROI evaluation"
+version = "0.2.0"
+description = "Autonomous Tech Radar MCP server with active learning heuristics and token cost optimization detection"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
@@ -26,10 +26,13 @@ dev = [
 ]
 
 [project.scripts]
-adaptive-radar-mcp = "src.server:main"
+adaptive-radar-mcp = "adaptive_radar_mcp.server:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src"]
+packages = ["adaptive_radar_mcp"]
+
+[tool.hatch.build.targets.wheel.sources]
+"adaptive_radar_mcp/data" = "adaptive_radar_mcp/data"
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

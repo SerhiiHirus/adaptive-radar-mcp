@@ -1,8 +1,8 @@
 """Tests for ChangelogParser."""
 
 import pytest
-from src.parser import ChangelogParser
-from src.models import UpdateCategory
+from adaptive_radar_mcp.parser import ChangelogParser
+from adaptive_radar_mcp.models import UpdateCategory
 
 
 SAMPLE_CHANGELOG = """🛠 AI Automation Daily Changelog - 04.11.2026

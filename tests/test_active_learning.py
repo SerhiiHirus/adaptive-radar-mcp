@@ -1,7 +1,7 @@
 """Tests for active learning and scoring bias."""
 
-from src.memory.active_learning import ActiveLearningEngine
-from src.models import DecisionType, FeedbackRecord
+from adaptive_radar_mcp.memory.active_learning import ActiveLearningEngine
+from adaptive_radar_mcp.models import DecisionType, FeedbackRecord
 
 
 def test_active_learning_bias_calculation():

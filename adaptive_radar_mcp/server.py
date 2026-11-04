@@ -3,7 +3,10 @@
 import asyncio
 from datetime import datetime, timezone
 import hashlib
+import importlib.resources
+import logging
 from pathlib import Path
+import re
 from typing import List, Optional
 import yaml
 
@@ -12,19 +15,21 @@ try:
 except (ImportError, ModuleNotFoundError):
     from mcp.server import MCPServer as FastMCP
 
-from src.crawler.github_releases import GitHubReleasesCrawler
-from src.crawler.rss_crawler import RSSCrawler
-from src.evaluator.scoring import ReleaseEvaluator
-from src.memory.active_learning import ActiveLearningEngine
-from src.memory.db import RadarDatabase
-from src.models import (
+from adaptive_radar_mcp.crawler.github_releases import GitHubReleasesCrawler
+from adaptive_radar_mcp.crawler.rss_crawler import RSSCrawler
+from adaptive_radar_mcp.evaluator.scoring import ReleaseEvaluator
+from adaptive_radar_mcp.memory.active_learning import ActiveLearningEngine
+from adaptive_radar_mcp.memory.db import RadarDatabase
+from adaptive_radar_mcp.models import (
     DecisionType,
     FeedbackRecord,
     SourceType,
     TechRelease,
     UserStackProfile,
 )
+from adaptive_radar_mcp.sanitizer import ContentSanitizer
 
+logger = logging.getLogger("adaptive-radar")
 mcp = FastMCP("adaptive-radar-mcp")
 
 
@@ -34,21 +39,25 @@ def get_db() -> RadarDatabase:
 
 
 def _load_sources_config() -> dict:
-    config_path = Path(__file__).parent.parent / "config" / "default_sources.yaml"
-    if config_path.exists():
-        return yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
-    return {
-        "github_repositories": ["pydantic/pydantic-ai", "BerriAI/litellm"],
-        "rss_feeds": [],
-    }
+    """Load default sources safely from packaged resources or fallback."""
+    try:
+        data_file = importlib.resources.files("adaptive_radar_mcp.data").joinpath("default_sources.yaml")
+        content = data_file.read_text(encoding="utf-8")
+        return yaml.safe_load(content) or {}
+    except Exception as e:
+        logger.warning("Could not read packaged default_sources.yaml (%s). Using fallback.", e)
+        return {
+            "github_repositories": ["pydantic/pydantic-ai", "BerriAI/litellm"],
+            "rss_feeds": [],
+        }
 
 
 @mcp.tool()
 async def radar_check_updates(fetch_remote: bool = True, limit: int = 5) -> str:
-    """Fetch and score latest AI/LLMOps tech updates against developer preferences and Token ROI.
+    """Fetch and score recent AI/LLMOps tech updates against developer preferences and cost metrics.
     
     Args:
-        fetch_remote: If True, crawls latest GitHub releases and RSS feeds before scoring.
+        fetch_remote: If True, queries tracked GitHub releases and RSS feeds before scoring.
         limit: Maximum number of evaluated recommendations to return.
     """
     config = _load_sources_config()
@@ -61,6 +70,9 @@ async def radar_check_updates(fetch_remote: bool = True, limit: int = 5) -> str:
             gh_crawler = GitHubReleasesCrawler()
             gh_releases = await gh_crawler.fetch_all(repos)
             for rel in gh_releases:
+                # Sanitize release content before persisting
+                rel.title = ContentSanitizer.sanitize_text(rel.title, max_length=150)
+                rel.body = ContentSanitizer.sanitize_text(rel.body, max_length=1000)
                 database.save_release(rel)
 
         # 2. Fetch RSS feeds concurrently
@@ -69,12 +81,14 @@ async def radar_check_updates(fetch_remote: bool = True, limit: int = 5) -> str:
             rss_crawler = RSSCrawler()
             feed_items = await rss_crawler.fetch_all(feeds, limit_per_feed=2)
             for item in feed_items:
+                item.title = ContentSanitizer.sanitize_text(item.title, max_length=150)
+                item.body = ContentSanitizer.sanitize_text(item.body, max_length=1000)
                 database.save_release(item)
 
     # 3. Retrieve unreviewed releases from DB
     releases = database.get_unreviewed_releases(limit=25)
     if not releases:
-        return "🛰 **Radar Status:** All tracked updates have already been evaluated and reviewed. No new items found."
+        return "Radar Status: All tracked updates have already been evaluated and reviewed. No new items found."
 
     profile = database.get_user_profile()
     feedback_history = database.get_recent_feedback(limit=20)
@@ -84,14 +98,13 @@ async def radar_check_updates(fetch_remote: bool = True, limit: int = 5) -> str:
         ReleaseEvaluator.evaluate(rel, profile, feedback_history)
         for rel in releases
     ]
-    # Sort by score descending
     evaluations.sort(key=lambda e: e.score, reverse=True)
     top_evals = evaluations[:limit]
 
-    # 5. Format human- and agent-friendly output
+    # 5. Format human- and agent-friendly output with sanitized summaries
     lines = [
         f"## Adaptive Tech Radar — Evaluated {len(releases)} updates",
-        f"> Profile: `{', '.join(profile.preferred_tools)}` | Learned decisions in memory: `{len(feedback_history)}`",
+        f"> Stack: `{', '.join(profile.preferred_tools)}` | Decisions in memory: `{len(feedback_history)}`",
         "",
     ]
 
@@ -101,20 +114,59 @@ async def radar_check_updates(fetch_remote: bool = True, limit: int = 5) -> str:
             f"### [{priority}] [{ev.recommended_action}] {ev.title} (Score: {ev.score}/10)",
             f"- **Release ID:** `{ev.release_id}`",
             f"- **URL:** {ev.url}",
-            f"- **Token ROI:** {ev.token_roi_summary}",
+            f"- **Token Cost Signal:** {ev.token_roi_summary}",
             f"- **Safety Verdict:** `{ev.safety_verdict}`",
-            f"- **Rationale:** {ev.rationale}",
+            f"- **Evaluation Rationale:** {ev.rationale}",
         ])
         if ev.context7_query:
-            lines.append(f"- **Suggested Context7 Check:** `query-docs` for `{ev.context7_query}`")
+            lines.append(f"- **Context7 Verification Tool:** Call `radar_prepare_context7_verification('{ev.release_id}')`")
         lines.append("")
 
     lines.extend([
         "---",
-        "Active Learning: Use `radar_record_feedback(release_id, decision, reason)` to approve/reject any item and refine future ratings.",
+        "Active Learning: Use `radar_record_feedback(release_id, decision, reason)` to approve/reject any item and train preferences.",
     ])
 
     return "\n".join(lines)
+
+
+@mcp.tool()
+def radar_prepare_context7_verification(release_id: str) -> dict:
+    """Prepares structured parameters to verify the selected release via Context7 MCP.
+    
+    Args:
+        release_id: The unique ID of the release to verify.
+    Returns:
+        Structured dictionary specifying library_id and target queries for Context7.
+    """
+    database = get_db()
+    with database._get_connection() as conn:
+        row = conn.execute("SELECT * FROM releases WHERE release_id = ?", (release_id,)).fetchone()
+        if not row:
+            return {"error": f"Release not found for ID: {release_id}"}
+
+    project = row["project_or_repo"].split("/")[-1].lower()
+    version = row["version"] or ""
+    title = row["title"]
+
+    return {
+        "status": "READY_FOR_CONTEXT7_INSPECTION",
+        "library_id": project,
+        "suggested_actions": [
+            {
+                "tool": "resolve-library-id",
+                "arguments": {"query": project}
+            },
+            {
+                "tool": "query-docs",
+                "arguments": {
+                    "library_id": project,
+                    "query": f"{version} new features API syntax".strip()
+                }
+            }
+        ],
+        "verification_objective": f"Verify official API interface and stability for {project} {version} ({title}) before generating code."
+    }
 
 
 @mcp.tool()
@@ -126,7 +178,6 @@ def radar_record_feedback(release_id: str, decision: str, reason: str) -> str:
         decision: One of 'ACCEPTED', 'REJECTED', 'OBSERVED'.
         reason: Why you approved or rejected it (e.g. 'We need structured outputs', 'Too complex, prefer standard SDK').
     """
-    import re
     decision_clean = decision.upper().strip()
     if decision_clean not in ["ACCEPTED", "REJECTED", "OBSERVED"]:
         return f"Error: decision must be one of ACCEPTED, REJECTED, OBSERVED (got: {decision})"
@@ -139,12 +190,12 @@ def radar_record_feedback(release_id: str, decision: str, reason: str) -> str:
         release_id=release_id,
         project_or_repo=project_or_repo,
         decision=DecisionType(decision_clean),
-        reason=reason.strip(),
+        reason=ContentSanitizer.sanitize_text(reason, max_length=200),
         timestamp=datetime.now(timezone.utc).isoformat(),
     )
     database.record_feedback(record)
 
-    return f"✅ Feedback recorded successfully for `{release_id}`. Decision: **{decision_clean}**. Active learning weights updated."
+    return f"Recorded feedback for `{release_id}`. Decision: {decision_clean}. Preference weights updated."
 
 
 @mcp.tool()
@@ -164,7 +215,7 @@ def radar_set_stack_profile(keywords: List[str], preferred_tools: List[str], ban
         notes="Updated via MCP tool",
     )
     database.set_user_profile(profile)
-    return f"✅ Stack profile updated: {len(profile.keywords)} keywords, {len(profile.preferred_tools)} preferred tools."
+    return f"Stack profile updated: {len(profile.keywords)} keywords, {len(profile.preferred_tools)} preferred tools."
 
 
 @mcp.tool()
@@ -176,17 +227,20 @@ def radar_ingest_custom(title: str, body: str, source_url: str = "") -> str:
         body: Body text or description.
         source_url: Optional source link.
     """
-    content_raw = f"{title}:{body}"
+    clean_title = ContentSanitizer.sanitize_text(title, max_length=150)
+    clean_body = ContentSanitizer.sanitize_text(body, max_length=2000)
+
+    content_raw = f"{clean_title}:{clean_body}"
     content_hash = hashlib.sha256(content_raw.encode("utf-8")).hexdigest()
     release_id = f"custom:{content_hash[:12]}"
 
     release = TechRelease(
         release_id=release_id,
         source_type=SourceType.MANUAL_INGEST,
-        project_or_repo=title.split(":")[0].strip(),
+        project_or_repo=clean_title.split(":")[0].strip(),
         version=None,
-        title=title,
-        body=body,
+        title=clean_title,
+        body=clean_body,
         url=source_url or "custom-input",
         published_at=datetime.now(timezone.utc).isoformat(),
         content_hash=content_hash,
@@ -194,9 +248,9 @@ def radar_ingest_custom(title: str, body: str, source_url: str = "") -> str:
     database = get_db()
     saved = database.save_release(release)
     if not saved:
-        return f"ℹ️ Update already exists in database (release_id: `{release_id}`)."
+        return f"Update already exists in database (release_id: `{release_id}`)."
 
-    return f"✅ Ingested custom release: `{release_id}` ('{title}'). Ready for evaluation via `radar_check_updates()`."
+    return f"Ingested custom release: `{release_id}` ('{clean_title}'). Ready for evaluation via `radar_check_updates()`."
 
 
 def main():

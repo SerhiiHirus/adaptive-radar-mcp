@@ -4,7 +4,7 @@ import re
 from collections import Counter
 from typing import List, Set, Tuple
 
-from src.models import DecisionType, FeedbackRecord
+from adaptive_radar_mcp.models import DecisionType, FeedbackRecord
 
 
 FROZEN_STOPWORDS: Set[str] = {

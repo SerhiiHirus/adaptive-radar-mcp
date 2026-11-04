@@ -8,7 +8,7 @@ from pathlib import Path
 def test_cli_execution_with_text(tmp_path):
     cmd = [
         sys.executable,
-        "src/main.py",
+        "adaptive_radar_mcp/main.py",
         "--text",
         "• PydanticAI v2.65.0: added thinking effort controls and prompt caching support",
         "--output-dir",

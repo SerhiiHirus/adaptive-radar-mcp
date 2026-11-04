@@ -2,9 +2,9 @@
 
 import pytest
 from pathlib import Path
-from src.memory.db import RadarDatabase
-from src.models import SourceType, TechRelease, UserStackProfile
-from src.server import radar_record_feedback, radar_ingest_custom, radar_set_stack_profile
+from adaptive_radar_mcp.memory.db import RadarDatabase
+from adaptive_radar_mcp.models import SourceType, TechRelease, UserStackProfile
+from adaptive_radar_mcp.server import radar_record_feedback, radar_ingest_custom, radar_set_stack_profile
 
 
 @pytest.fixture(autouse=True)
@@ -57,7 +57,7 @@ def test_custom_ingest():
 
 def test_record_feedback_prefix_cleaning(tmp_path):
     res = radar_record_feedback("atom:OpenAI Blog:abc12345", "ACCEPTED", "Great model updates")
-    assert "Feedback recorded successfully" in res
+    assert "Recorded feedback" in res
     
     db = RadarDatabase(tmp_path / "radar.db")
     # Verify feedback was stored

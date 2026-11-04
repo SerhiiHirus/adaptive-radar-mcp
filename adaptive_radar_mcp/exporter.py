@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import List
 
-from src.models import ChangelogDraft, RadarEvaluation, RecommendationStatus
+from adaptive_radar_mcp.models import ChangelogDraft, RadarEvaluation, RecommendationStatus
 
 
 class RadarExporter:

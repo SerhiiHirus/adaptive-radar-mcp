@@ -3,9 +3,9 @@
 import re
 from typing import List, Optional
 
-from src.evaluator.safety import SafetyChecker
-from src.memory.active_learning import ActiveLearningEngine
-from src.models import EvaluationResult, FeedbackRecord, TechRelease, UserStackProfile
+from adaptive_radar_mcp.evaluator.safety import SafetyChecker
+from adaptive_radar_mcp.memory.active_learning import ActiveLearningEngine
+from adaptive_radar_mcp.models import EvaluationResult, FeedbackRecord, TechRelease, UserStackProfile
 
 
 class ReleaseEvaluator:

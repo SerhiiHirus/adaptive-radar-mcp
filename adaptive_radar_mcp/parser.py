@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 from typing import List, Optional
 
-from src.models import ChangelogDraft, ChangelogItem, UpdateCategory
+from adaptive_radar_mcp.models import ChangelogDraft, ChangelogItem, UpdateCategory
 
 
 class ChangelogParser:

@@ -7,7 +7,7 @@ import os
 from typing import List, Optional
 import httpx
 
-from src.models import SourceType, TechRelease
+from adaptive_radar_mcp.models import SourceType, TechRelease
 
 logger = logging.getLogger("adaptive-radar.github")
 

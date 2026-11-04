@@ -5,70 +5,89 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Code Style: PEP8](https://img.shields.io/badge/code%20style-pep8-black.svg)](https://peps.python.org/pep-0008/)
 
-An autonomous, self-learning Model Context Protocol (MCP) server designed to monitor technical releases across the AI and LLMOps ecosystem, evaluate architectural applicability using **Active Learning**, and compute **Token ROI** prior to adoption.
+An autonomous Model Context Protocol (MCP) server that monitors upstream releases across the AI and LLMOps ecosystem, applies deterministic cost-reduction heuristics, and isolates your coding assistant from untrusted changelog injections.
 
-Integrates with [Context7 MCP](https://github.com/modelcontextprotocol) for deterministic, zero-hallucination API schema verification.
-
----
-
-## Overview
-
-Software teams adopting LLM frameworks face two operational challenges:
-1. **Unchecked Churn:** Blindly adopting experimental abstractions that break existing interfaces, introduce supply chain vulnerabilities, or significantly increase inference token overhead.
-2. **Delayed Optimization:** Missing foundational platform updates (such as API-level prompt caching, native structured outputs, or compact schema introspection) that reduce operational token expenditures by 50-80%.
-
-Adaptive Tech Radar MCP monitors upstream releases, compares them against a user-defined architectural profile, and dynamically refines its scoring based on human acceptance and rejection patterns.
+Built for seamless verification workflows alongside [Context7 MCP](https://github.com/modelcontextprotocol).
 
 ---
 
-## Architecture & Data Flow
+## Technical Overview
+
+Developers working with AI agents face a recurring trade-off when adopting new libraries:
+- **Interface & Dependency Churn:** Adopting unverified releases that break existing code or inflate token burn.
+- **Missed Platform Optimizations:** Overlooking architectural cost primitives (prompt caching, native structured outputs, or MCP schema introspection) that reduce inference costs by 30-70%.
+
+Adaptive Tech Radar runs locally on your machine, tracks verified upstream feeds (GitHub Releases, official RSS/Atom), scores them against your configured stack profile, and sanitizes untrusted input before exposing it to your AI assistant.
+
+---
+
+## Architecture & Security Boundary
 
 ```mermaid
 flowchart TD
-    subgraph Ingestion ["Autonomous Ingestion (Zero API Keys)"]
-        A1["GitHub Releases API (ETag + SHA-256 Deduplication)"]
+    subgraph Ingestion ["Untrusted Ingestion Sources"]
+        A1["GitHub Releases API (ETag + Rate Limit Control)"]
         A2["Official Vendor Feeds (RSS / Atom)"]
-        A3["Manual Changelog Ingestion"]
+        A3["Manual Text Ingestion"]
     end
 
-    subgraph Core ["Adaptive Radar Engine (~/.adaptive-radar/)"]
-        B["Deduplication Engine (SHA-256 Hashes)"]
-        C[("Embedded SQLite Memory")]
-        D["Active Learning Bias Engine"]
-        E["Token ROI & Policy Scorer"]
+    subgraph Defense ["Security & Sanitization Boundary"]
+        B["ContentSanitizer (Prompt Injection Mitigation)"]
+        C["XML Entity Defense (XXE & Billion Laughs Filter)"]
+    end
+
+    subgraph Core ["Local Storage & Heuristics (~/.adaptive-radar/)"]
+        D["SQLite Database (SHA-256 Deduplication)"]
+        E["Heuristic Relevance & Cost Scorer"]
+        F["Preference Bias Memory (Active Learning)"]
     end
 
     subgraph Agent ["Agent Environment (Claude / Cursor / Antigravity)"]
-        F["radar_check_updates()"]
-        G["radar_record_feedback()"]
-        H["Context7 MCP (Official API Verification)"]
+        G["radar_check_updates()"]
+        H["radar_prepare_context7_verification()"]
+        I["Context7 MCP (Live Doc Schemas)"]
     end
 
-    A1 & A2 & A3 --> B --> C
-    C --> D --> E
-    E --> F
-    F <-->|Live Schema Verification| H
-    F -->|Decision: ACCEPT / REJECT| G
-    G -->|Dynamic Few-Shot Learning| D
+    A1 & A2 & A3 --> B & C
+    B & C --> D
+    D --> E & F
+    E --> G
+    G --> H
+    H <-->|Deterministic Schema Check| I
 ```
 
 ---
 
-## Core Capabilities
+## Key Design Principles
 
-- **Keyless Autonomous Monitoring:** Continuously tracks upstream packages via public GitHub endpoints and RSS/Atom feeds using connection pooling (`httpx`), concurrent dispatch (`asyncio.gather`), and SHA-256 deduplication.
-- **Active Learning Preference Engine:** Maintains a historical vector of developer decisions (`ACCEPTED` / `REJECTED`). Unwanted architectural patterns (e.g., heavy orchestration layers) are automatically downranked over time.
-- **Token ROI Evaluation:** Scores releases based on explicit cost-reduction primitives: prompt caching, thinking effort controls, schema compression, and structured output enforcement.
-- **Execution & Supply Chain Boundaries:** Rejects dangerous runtime patterns (arbitrary `eval`, unconstrained subshell execution, unverified dynamic agents).
-- **Context7 Synergy:** Automatically suggests targeted queries for Context7 MCP to confirm live API signatures before implementation code is generated.
+### 1. Prompt Injection Defense
+Changelog notes written by third parties are **untrusted input**. The embedded `ContentSanitizer`:
+- Strips instruction overrides (e.g., `ignore previous instructions`, `system prompt:`, `exfiltrate`).
+- Cleans HTML markup, hidden comments, scripts, and non-printable control characters.
+- Truncates release bodies to prevent context exhaustion attacks.
+
+### 2. Transparent Cost-Reduction Heuristics
+Instead of opaque ROI claims, the engine uses explicit, documented heuristic signals:
+- **Prompt Caching Detection:** Detects native provider caching hooks (`cache_control`, `prompt caching`).
+- **Structured Output Support:** Identifies native JSON schema enforcement that eliminates validation retry loops.
+- **Thinking Effort Controls:** Flags dynamic reasoning budget parameters.
+- **Schema Compression:** Evaluates MCP database adapters that eliminate full DDL dumping in system prompts.
+
+### 3. Native Context7 Integration
+Provides the `radar_prepare_context7_verification` tool, which generates a structured verification plan (library name, version, and targeted queries) for Context7 MCP to confirm live API interfaces before any code is generated.
+
+### 4. Zero Unauthenticated Dependency Lock-in
+- Requires zero paid API keys out of the box.
+- Supports optional `GITHUB_TOKEN` environment variable to expand GitHub API limits from 60 to 5,000 requests/hour.
+- Connection pooling via `httpx.AsyncClient` with bounded concurrency (`asyncio.Semaphore`).
 
 ---
 
 ## Installation & Configuration
 
-### Option 1: uvx (Zero Installation via GitHub)
+### Option 1: uvx (Recommended)
 
-Add directly to your client MCP configuration (`claude_desktop_config.json`, Cursor, or Antigravity `mcp_config.json`):
+Run directly from GitHub without cloning or local package installation:
 
 ```json
 {
@@ -91,17 +110,21 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
 
-# Run test suite
+# Run test suite (16 tests)
 pytest
 ```
 
-For local environments, configure your client to point to the virtualenv binary:
+To configure your client with the local virtualenv:
 ```json
 {
   "mcpServers": {
     "adaptive-radar": {
       "command": "/absolute/path/to/adaptive-radar-mcp/.venv/bin/adaptive-radar-mcp",
-      "args": []
+      "args": [],
+      "env": {
+        "GITHUB_TOKEN": "optional_token_here",
+        "RADAR_STORAGE_DIR": "~/.adaptive-radar"
+      }
     }
   }
 }
@@ -113,35 +136,17 @@ For local environments, configure your client to point to the virtualenv binary:
 
 | Tool | Parameters | Description |
 | :--- | :--- | :--- |
-| `radar_check_updates` | `fetch_remote: bool = True`, `limit: int = 5` | Collects, filters, and scores recent updates against the developer profile and Token ROI metrics. |
-| `radar_record_feedback` | `release_id: str`, `decision: str`, `reason: str` | Records user feedback (`ACCEPTED`, `REJECTED`, `OBSERVED`) to adjust active learning weights. |
-| `radar_set_stack_profile` | `keywords: list`, `preferred_tools: list`, `banned_patterns: list` | Configures architectural constraints, preferred packages, and explicit exclusions. |
-| `radar_ingest_custom` | `title: str`, `body: str`, `source_url: str` | Ingests a raw text draft, issue, or changelog snippet for immediate scoring. |
+| `radar_check_updates` | `fetch_remote: bool = True`, `limit: int = 5` | Fetches, sanitizes, and evaluates releases against developer preferences and cost metrics. |
+| `radar_prepare_context7_verification` | `release_id: str` | Generates a structured Context7 payload (`library_id`, query) to verify official docs before implementation. |
+| `radar_record_feedback` | `release_id: str`, `decision: str`, `reason: str` | Records user decisions (`ACCEPTED`, `REJECTED`, `OBSERVED`) to adjust heuristic bias weights. |
+| `radar_set_stack_profile` | `keywords: list`, `preferred_tools: list`, `banned_patterns: list` | Updates architectural constraints and explicit pattern bans (e.g. heavy wrappers). |
+| `radar_ingest_custom` | `title: str`, `body: str`, `source_url: str` | Manually sanitizes and ingests a custom changelog draft or announcement. |
 
 ---
 
-## Verification Workflow with Context7 MCP
+## Testing
 
-Adaptive Radar is designed to operate alongside Context7 to eliminate hallucinations during library upgrades:
-
-1. **Radar Identifies High-ROI Release:**
-   ```
-   [IMPLEMENT] PydanticAI v2.65.0: Dynamic thinking effort controls.
-   Token ROI: Saves 30-50% tokens by reducing reasoning steps on trivial extractions.
-   ```
-2. **Context7 Confirms Documentation:**
-   The agent queries live library schemas:
-   ```
-   mcp_context7_query-docs(library_id='pydantic-ai', query='thinking effort')
-   ```
-3. **Deterministic Implementation:**
-   The assistant constructs implementation code against validated, production-ready interfaces.
-
----
-
-## Test Verification
-
-The test suite validates XML security defenses (XXE / Entity Expansion mitigation), concurrent crawler execution, rate-limit resilience, SQLite isolation, and active learning weight adjustments:
+The test suite validates prompt injection defense, XML entity mitigation, concurrent request pooling, rate-limit resilience, SQLite isolation, and active learning adjustments:
 
 ```bash
 pytest -v

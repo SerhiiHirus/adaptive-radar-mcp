@@ -7,10 +7,10 @@ from pathlib import Path
 # Add project root to sys.path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.evaluator.scoring import ReleaseEvaluator
-from src.exporter import RadarExporter
-from src.memory.db import RadarDatabase
-from src.models import (
+from adaptive_radar_mcp.evaluator.scoring import ReleaseEvaluator
+from adaptive_radar_mcp.exporter import RadarExporter
+from adaptive_radar_mcp.memory.db import RadarDatabase
+from adaptive_radar_mcp.models import (
     ChangelogDraft,
     DecisionType,
     RadarEvaluation,
@@ -18,7 +18,7 @@ from src.models import (
     SourceType,
     TechRelease,
 )
-from src.parser import ChangelogParser
+from adaptive_radar_mcp.parser import ChangelogParser
 
 
 def main():

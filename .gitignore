@@ -1,0 +1,56 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+.venv
+venv/
+ENV/
+
+# Testing & Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE & OS
+.DS_Store
+.idea/
+.vscode/
+
+# Environment Variables & Secrets
+.env
+.env.*
+*.pem
+*.key
+*.token
+credentials.json
+
+# Local state & Databases
+*.db
+*.sqlite3
+.adaptive-radar/
+.context/PROJECT_LOG.md.tmp
+config/radar_config.yaml
+
+# Generated Reports
+reports/*.md
+!reports/.gitkeep

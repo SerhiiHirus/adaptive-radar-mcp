@@ -1,0 +1,23 @@
+# Default open sources for autonomous monitoring (Zero API keys required)
+version: "1.0"
+
+github_repositories:
+  - "pydantic/pydantic-ai"
+  - "BerriAI/litellm"
+  - "modelcontextprotocol/python-sdk"
+  - "vllm-project/vllm"
+  - "run-llama/llama_index"
+  - "langchain-ai/langgraph"
+  - "ollama/ollama"
+
+rss_feeds:
+  - name: "OpenAI Blog"
+    url: "https://openai.com/news/rss.xml"
+  - name: "Anthropic Research"
+    url: "https://www.anthropic.com/feed.xml"
+  - name: "Google AI Updates"
+    url: "https://blog.google/technology/ai/rss/"
+
+defaults:
+  min_token_roi_score: 5.0
+  max_items_per_query: 5

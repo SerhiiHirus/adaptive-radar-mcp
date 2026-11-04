@@ -1,0 +1,25 @@
+version: "1.0"
+
+sources:
+  drafts_directory: "./drafts"
+  pattern: "*ai-automation*.md"
+
+target_projects:
+  content_engine:
+    path: "./projects/content-engine"
+    focus: ["agents", "pydantic", "workflows", "telegram", "fastapi"]
+  trading_bot:
+    path: "./projects/trading-bot"
+    focus: ["websockets", "trading", "asyncio"]
+  analytics:
+    path: "./projects/analytics"
+    focus: ["fastapi", "react", "sqlite"]
+
+obsidian:
+  vault_path: "~/Obsidian/General"
+  target_note: "Tech_Radar.md"
+
+evaluation_criteria:
+  min_token_savings_pct: 15
+  require_context7_validation: true
+  block_eval_or_unsafe_execution: true

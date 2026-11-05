@@ -14,6 +14,9 @@ BREAKING_KEYWORDS = [
     r"\bmigration\s+guide\b",
     r"\bdeprecated\b",
     r"\bremoved\s+in\s+v",
+    r"\bcore\s+rewrite\b",
+    r"\barchitectural\s+rewrite\b",
+    r"\bapi\s+redesign\b",
 ]
 
 
@@ -38,26 +41,27 @@ class SemVerAnalyzer:
         
         Returns:
             dict containing diff_type (MAJOR, MINOR, PATCH, or UNKNOWN),
-            risk_level (HIGH, MEDIUM, LOW), and actionable migration guidance.
+            risk_level (HIGH, MEDIUM, LOW), resistance_level (HIGH, MEDIUM, LOW),
+            and actionable migration guidance.
         """
+        lower_changelog = changelog_text.lower()
+        has_breaking_keywords = any(
+            re.search(pattern, lower_changelog) for pattern in BREAKING_KEYWORDS
+        )
+
         if not current_version or not new_version:
+            risk = "HIGH" if has_breaking_keywords else "LOW"
+            resistance = "HIGH" if has_breaking_keywords else "LOW"
             return {
                 "diff_type": "UNKNOWN",
-                "risk_level": "LOW",
-                "requires_migration_guide": False,
-                "summary": "Version diff unavailable; treat as standard update.",
+                "risk_level": risk,
+                "resistance_level": resistance,
+                "requires_migration_guide": has_breaking_keywords,
+                "summary": "Breaking notes detected in changelog." if has_breaking_keywords else "Version diff unavailable; treat as standard update.",
             }
 
         cur_str = cls._clean_version_string(current_version)
         new_str = cls._clean_version_string(new_version)
-
-        # Detect breaking change mentions in changelog text
-        has_breaking_keywords = False
-        lower_changelog = changelog_text.lower()
-        for pattern in BREAKING_KEYWORDS:
-            if re.search(pattern, lower_changelog):
-                has_breaking_keywords = True
-                break
 
         try:
             cur_v = Version(cur_str)
@@ -67,6 +71,7 @@ class SemVerAnalyzer:
                 return {
                     "diff_type": "NO_OP",
                     "risk_level": "LOW",
+                    "resistance_level": "LOW",
                     "requires_migration_guide": False,
                     "summary": f"Target version {new_str} is already satisfied by current version {cur_str}.",
                 }
@@ -74,6 +79,7 @@ class SemVerAnalyzer:
             if new_v.major > cur_v.major:
                 diff_type = "MAJOR"
                 risk_level = "HIGH"
+                resistance_level = "HIGH"
                 requires_migration_guide = True
                 summary = (
                     f"Major version bump ({cur_str} -> {new_str}): Breaking changes likely. "
@@ -82,6 +88,7 @@ class SemVerAnalyzer:
             elif new_v.minor > cur_v.minor:
                 diff_type = "MINOR"
                 risk_level = "MEDIUM" if has_breaking_keywords else "LOW"
+                resistance_level = "HIGH" if has_breaking_keywords else "MEDIUM"
                 requires_migration_guide = has_breaking_keywords
                 summary = (
                     f"Minor version bump ({cur_str} -> {new_str}): New features and optimizations. "
@@ -90,12 +97,14 @@ class SemVerAnalyzer:
             else:
                 diff_type = "PATCH"
                 risk_level = "LOW"
-                requires_migration_guide = False
+                resistance_level = "HIGH" if has_breaking_keywords else "LOW"
+                requires_migration_guide = has_breaking_keywords
                 summary = f"Patch update ({cur_str} -> {new_str}): Bugfixes and security patches. Safe upgrade."
 
             return {
                 "diff_type": diff_type,
                 "risk_level": risk_level,
+                "resistance_level": resistance_level,
                 "requires_migration_guide": requires_migration_guide,
                 "current_version": str(cur_v),
                 "new_version": str(new_v),
@@ -104,9 +113,11 @@ class SemVerAnalyzer:
         except (InvalidVersion, Exception) as e:
             logger.debug("SemVer parse failed for '%s' -> '%s': %s", current_version, new_version, e)
             risk_level = "HIGH" if has_breaking_keywords else "LOW"
+            resistance_level = "HIGH" if has_breaking_keywords else "LOW"
             return {
                 "diff_type": "UNKNOWN",
                 "risk_level": risk_level,
+                "resistance_level": resistance_level,
                 "requires_migration_guide": has_breaking_keywords,
                 "summary": f"Custom version scheme ({current_version} -> {new_version}). "
                 + ("Breaking notes detected." if has_breaking_keywords else "Inspect changelog."),

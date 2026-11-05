@@ -225,6 +225,7 @@ async def radar_check_updates(fetch_remote: bool = True, limit: int = 5) -> str:
             f"### [{priority}] [{ev.recommended_action}] {ev.title} (Score: {ev.score}/10)",
             f"- **Release ID:** `{ev.release_id}`",
             f"- **URL:** {ev.url}",
+            f"- **Resistance:** `{ev.resistance_level}`",
             f"- **Token Cost Signal:** {ev.token_roi_summary}",
             f"- **Safety Verdict:** `{ev.safety_verdict}`",
             f"- **Evaluation Rationale:** {ev.rationale}",
@@ -351,6 +352,7 @@ async def radar_quick_audit(directory: str = ".") -> dict:
                     "version": eval_res.version,
                     "score": eval_res.score,
                     "action": eval_res.recommended_action,
+                    "resistance_level": eval_res.resistance_level,
                     "token_roi": eval_res.token_roi_summary,
                     "rationale": eval_res.rationale,
                 })

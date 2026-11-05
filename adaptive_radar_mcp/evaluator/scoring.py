@@ -51,6 +51,7 @@ class ReleaseEvaluator:
                 token_roi_summary="Zero / High Risk",
                 safety_verdict=safety_verdict,
                 recommended_action="IGNORE",
+                resistance_level="HIGH",
                 context7_query=None,
                 rationale=safety_reason,
             )
@@ -69,6 +70,7 @@ class ReleaseEvaluator:
                     token_roi_summary="Banned by architectural policy",
                     safety_verdict=safety_verdict,
                     recommended_action="IGNORE",
+                    resistance_level="HIGH",
                     context7_query=None,
                     rationale=f"Dismissed: Matches banned pattern '{banned}' configured in user profile.",
                 )
@@ -118,7 +120,7 @@ class ReleaseEvaluator:
         # Clamp score between 0.0 and 10.0
         final_score = round(max(0.0, min(10.0, current_score)), 1)
 
-        # Determine recommended action
+        # Preliminary recommended action based on score
         if final_score >= 7.0:
             action = "IMPLEMENT"
         elif final_score >= 4.5:
@@ -141,6 +143,8 @@ class ReleaseEvaluator:
             current_version=installed_version, new_version=release.version, changelog_text=text_full
         )
 
+        resistance_level = semver_info.get("resistance_level", "LOW")
+
         if final_score >= 5.5 or semver_info.get("requires_migration_guide"):
             if semver_info.get("requires_migration_guide"):
                 context7_query = f"{repo_simple} migration guide {release.version or ''}".strip()
@@ -153,6 +157,21 @@ class ReleaseEvaluator:
             rationale += f"[Installed: {installed_version} -> Target: {release.version or 'latest'} ({diff_label})] "
         if semver_info.get("risk_level") == "HIGH":
             rationale += "[Migration Risk: HIGH] "
+
+        # Least Resistance Policy: Core rewrite VETO check
+        if resistance_level == "HIGH":
+            has_extraordinary_roi = bool(benchmarks) and final_score >= 8.0
+            if has_extraordinary_roi:
+                rationale += "[Least Resistance Policy: HIGH resistance accepted due to extraordinary 3x+ Token ROI] "
+            else:
+                if action == "IMPLEMENT":
+                    action = "EXPLORE"
+                rationale += "[Least Resistance Policy: Core rewrite VETOED - demoted to EXPLORE due to high friction] "
+        elif resistance_level == "MEDIUM":
+            rationale += "[Resistance: MEDIUM (Isolated Adapter)] "
+        else:
+            rationale += "[Resistance: LOW (Drop-in / Config)] "
+
         if token_notes:
             rationale += "Identified cost-saving mechanisms. "
         if feedback_history:
@@ -168,6 +187,7 @@ class ReleaseEvaluator:
             token_roi_summary=token_roi_summary,
             safety_verdict=safety_verdict,
             recommended_action=action,
+            resistance_level=resistance_level,
             context7_query=context7_query,
             rationale=rationale.strip(),
         )

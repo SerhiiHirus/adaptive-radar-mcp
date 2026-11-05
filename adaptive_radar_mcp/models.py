@@ -41,6 +41,7 @@ class EvaluationResult(BaseModel):
     token_roi_summary: str
     safety_verdict: str                  # "SAFE", "WARNING", "UNSAFE"
     recommended_action: str             # "IMPLEMENT", "EXPLORE", "IGNORE"
+    resistance_level: str = "LOW"        # "LOW" (Drop-in / Config), "MEDIUM" (Adapter), "HIGH" (Core Rewrite)
     context7_query: str | None = None
     rationale: str
 
